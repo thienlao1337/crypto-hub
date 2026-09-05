@@ -65,6 +65,30 @@ def build_scheduler() -> AsyncIOScheduler:
         seconds=settings.portfolio_snapshot_interval,
         id="snapshot_portfolios",
     )
+    scheduler.add_job(
+        tasks.poll_candles,
+        "interval",
+        seconds=settings.poll_candles_interval,
+        id="poll_candles",
+    )
+    scheduler.add_job(
+        tasks.evaluate_signals,
+        "interval",
+        seconds=settings.evaluate_signals_interval,
+        id="evaluate_signals",
+    )
+    scheduler.add_job(
+        tasks.evaluate_alerts,
+        "interval",
+        seconds=settings.evaluate_alerts_interval,
+        id="evaluate_alerts",
+    )
+    scheduler.add_job(
+        tasks.evaluate_signal_outcomes,
+        "interval",
+        minutes=15,
+        id="evaluate_signal_outcomes",
+    )
     return scheduler
 
 

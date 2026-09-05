@@ -18,10 +18,25 @@ from sqlalchemy import select
 
 from app.db import session_scope
 from app.exchanges.ccxt_client import CcxtAdapter
-from app.models import Exchange, ExchangeAccount, Market, User, WatchlistItem
+from app.models import (
+    Alert,
+    Exchange,
+    ExchangeAccount,
+    Market,
+    SignalRule,
+    Timeframe,
+    User,
+    WatchlistItem,
+)
 from app.models.exchange import KEY_STATUS_INVALID
 from app.services import exchange_keys_service as keys_service
-from app.services import market_service, portfolio_service
+from app.services import (
+    alert_service,
+    candle_service,
+    market_service,
+    portfolio_service,
+    signal_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -203,3 +218,137 @@ async def _remember_error(account_id: int, exc: Exception) -> None:
                 await session.commit()
     except Exception:
         logger.exception("Не удалось записать ошибку синхронизации подключения %s", account_id)
+
+
+# --- Свечи, сигналы и алерты ---
+
+
+async def poll_candles() -> None:
+    """Держать свежими свечи по парам, которые кому-то нужны.
+
+    Качать всё подряд нельзя: пар больше тысячи, а таблица свечей растёт
+    быстро. Берём только то, на чём стоят правила сигналов, алерты и
+    списки отслеживания.
+    """
+    targets = await _candle_targets()
+
+    for market_id, timeframe_id in targets:
+        try:
+            async with session_scope() as session:
+                market = await session.get(Market, market_id)
+                timeframe = await session.get(Timeframe, timeframe_id)
+                if market is None or timeframe is None:
+                    continue
+                if await candle_service.is_fresh(session, market, timeframe):
+                    continue
+
+                exchange = await session.get(Exchange, market.exchange_id)
+                async with CcxtAdapter(exchange.code) as adapter:
+                    await candle_service.sync_candles(session, market, timeframe, adapter)
+                await session.commit()
+        except Exception:
+            logger.exception("Не удалось обновить свечи пары %s", market_id)
+
+
+async def evaluate_signals() -> None:
+    """Посчитать правила сигналов по свежим свечам."""
+    async with session_scope() as session:
+        rule_ids = [rule.id for rule in await signal_service.active_rules(session)]
+
+    for rule_id in rule_ids:
+        try:
+            async with session_scope() as session:
+                rule = await session.get(SignalRule, rule_id)
+                if rule is None:
+                    continue
+
+                timeframe = await session.get(Timeframe, rule.timeframe_id)
+                for market_id in await _rule_markets(session, rule):
+                    market = await session.get(Market, market_id)
+                    if market is None:
+                        continue
+                    signal = await signal_service.evaluate_rule(
+                        session, rule, market, timeframe
+                    )
+                    if signal is not None:
+                        logger.info(
+                            "Сигнал %s по %s: %s",
+                            signal.direction, market.symbol, signal.reason,
+                        )
+                await session.commit()
+        except Exception:
+            logger.exception("Правило сигналов %s не отработало", rule_id)
+
+
+async def evaluate_signal_outcomes() -> None:
+    """Проверить, сыграли ли сигналы, у которых истёк горизонт."""
+    try:
+        async with session_scope() as session:
+            count = await signal_service.evaluate_outcomes(session)
+            await session.commit()
+        if count:
+            logger.info("Оценено сигналов: %s", count)
+    except Exception:
+        logger.exception("Не удалось оценить результаты сигналов")
+
+
+async def evaluate_alerts() -> None:
+    """Проверить условия алертов и разослать сработавшие."""
+    try:
+        async with session_scope() as session:
+            fired = await alert_service.evaluate_all(session)
+            await session.commit()
+        for trigger in fired:
+            logger.info("Алерт сработал: %s", trigger.message)
+    except Exception:
+        logger.exception("Не удалось проверить алерты")
+
+
+async def _candle_targets() -> list[tuple[int, int]]:
+    """Пары и таймфреймы, по которым нужны свечи."""
+    async with session_scope() as session:
+        targets: set[tuple[int, int]] = set()
+
+        rules = await session.execute(
+            select(SignalRule.market_id, SignalRule.timeframe_id, SignalRule.user_id)
+            .where(SignalRule.is_active.is_(True))
+        )
+        for market_id, timeframe_id, user_id in rules:
+            if market_id is not None:
+                targets.add((market_id, timeframe_id))
+                continue
+            # Правило без конкретной пары считается по списку отслеживания.
+            watched = await session.execute(
+                select(WatchlistItem.market_id).where(
+                    WatchlistItem.user_id == user_id
+                    if user_id is not None
+                    else WatchlistItem.user_id.is_not(None)
+                )
+            )
+            for (watched_market_id,) in watched:
+                targets.add((watched_market_id, timeframe_id))
+
+        # Алертам нужен свой таймфрейм для RSI и изменения за период.
+        alert_timeframe = await session.execute(
+            select(Timeframe.id).where(Timeframe.code == alert_service.ALERT_TIMEFRAME)
+        )
+        alert_timeframe_id = alert_timeframe.scalar_one_or_none()
+        if alert_timeframe_id is not None:
+            markets = await session.execute(
+                select(Alert.market_id).where(Alert.is_active.is_(True)).distinct()
+            )
+            for (market_id,) in markets:
+                targets.add((market_id, alert_timeframe_id))
+
+        return sorted(targets)
+
+
+async def _rule_markets(session, rule: SignalRule) -> list[int]:
+    if rule.market_id is not None:
+        return [rule.market_id]
+
+    query = select(WatchlistItem.market_id).distinct()
+    if rule.user_id is not None:
+        query = query.where(WatchlistItem.user_id == rule.user_id)
+    result = await session.execute(query)
+    return [market_id for (market_id,) in result]

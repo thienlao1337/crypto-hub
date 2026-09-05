@@ -11,12 +11,18 @@
     <a href="/">Дашборд</a>
     <a href="/portfolio">Портфель</a>
     <a href="/market">Рынок</a>
+    <a href="/signals">Сигналы</a>
+    <a href="/alerts">Алерты</a>
     <a href="/settings/keys">Биржи</a>
     <a href="/settings/security">Безопасность</a>
     {% if current_user.is_owner %}<a href="/admin/invites">Приглашения</a>{% endif %}
   </nav>
 
   <div class="topbar-right">
+    <a href="/notifications" class="bell" title="Уведомления">
+      <span aria-hidden="true">🔔</span>
+      <span class="bell-badge" id="unread-badge" hidden>0</span>
+    </a>
     <span class="dim">{{ current_user.email }}</span>
     <form method="post" action="/logout">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -27,9 +33,31 @@
 
 <main class="container">
   {% include "_flashes.html" %}
-  {% if notice %}
-    <div class="flash flash-success">{{ notice }}</div>
-  {% endif %}
   {% block app_content %}{% endblock %}
 </main>
+
+{# Скрипт значка стоит прямо здесь, а не в блоке scripts: этот блок
+   переопределяют страницы с графиками, и счётчик пропал бы на них. #}
+<script>
+  (function () {
+    var badge = document.getElementById('unread-badge');
+    if (!badge) return;
+
+    async function refresh() {
+      try {
+        var response = await fetch('/notifications/count');
+        if (!response.ok) return;
+        var data = await response.json();
+        badge.textContent = data.unread > 99 ? '99+' : data.unread;
+        badge.hidden = !data.unread;
+      } catch (error) {
+        /* сеть моргнула — попробуем в следующий раз */
+      }
+    }
+
+    refresh();
+    // Событий немного, держать ради них отдельное соединение незачем.
+    setInterval(refresh, 30000);
+  })();
+</script>
 {% endblock %}

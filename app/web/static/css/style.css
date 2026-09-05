@@ -800,3 +800,102 @@ input::placeholder {
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
+
+/* --- Сигналы --- */
+
+.signal-list {
+  display: grid;
+  gap: 10px;
+}
+
+.signal {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  /* Полоса слева повторяет направление: зелёный и красный здесь уместны,
+     это и есть знак движения цены. */
+  border-left-width: 3px;
+}
+
+.signal.buy {
+  border-left-color: var(--up);
+}
+
+.signal.sell {
+  border-left-color: var(--down);
+}
+
+.signal-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.signal-badge {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.signal-time {
+  margin-left: auto;
+}
+
+.signal-reason {
+  margin: 0 0 8px;
+  font-size: 0.92rem;
+}
+
+.signal-values {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+}
+
+.row-muted {
+  opacity: 0.5;
+}
+
+.watch-form {
+  margin-left: auto;
+}
+
+/* --- Значок уведомлений --- */
+
+.bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  font-size: 1rem;
+  line-height: 1;
+  text-decoration: none;
+  filter: grayscale(1) opacity(0.75);
+  transition: filter 0.15s;
+}
+
+.bell:hover {
+  filter: none;
+  text-decoration: none;
+}
+
+.bell-badge {
+  position: absolute;
+  top: -3px;
+  right: -6px;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  /* Акцент, а не красный: непрочитанное — не ошибка и не падение цены. */
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  line-height: 16px;
+  text-align: center;
+}

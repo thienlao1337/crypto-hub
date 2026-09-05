@@ -1,0 +1,175 @@
+{% extends "app/base.html" %}
+{% block title %}Алерты — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<h1>Алерты</h1>
+
+<section class="card">
+  <h2>Активные</h2>
+
+  {% if not alerts %}
+    <p class="dim">Пока ни одного.</p>
+  {% else %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Пара</th>
+            <th>Условие</th>
+            <th>Доставка</th>
+            <th>Срабатываний</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for alert, type_name, symbol in alerts %}
+          <tr class="{{ '' if alert.is_active else 'row-muted' }}">
+            <td><strong>{{ symbol }}</strong></td>
+            <td>
+              {{ type_name }}
+              <div class="dim num">
+                {% for key, value in alert.params.items() %}{{ key }}={{ value }} {% endfor %}
+              </div>
+            </td>
+            <td class="dim">
+              {% if alert.notify_web %}веб{% endif %}
+              {% if alert.notify_telegram %}{{ ', ' if alert.notify_web }}telegram{% endif %}
+              <div class="dim">пауза {{ (alert.cooldown_seconds // 60) }} мин</div>
+            </td>
+            <td class="num">
+              {{ alert.trigger_count }}{% if alert.trigger_limit %} / {{ alert.trigger_limit }}{% endif %}
+              {% if alert.last_triggered_at %}
+                <div class="dim">{{ alert.last_triggered_at.strftime('%d.%m %H:%M') }}</div>
+              {% endif %}
+            </td>
+            <td>
+              <div class="row-actions">
+                <form method="post" action="/alerts/{{ alert.id }}/toggle">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <button type="submit" class="btn btn-ghost">
+                    {{ 'Выключить' if alert.is_active else 'Включить' }}
+                  </button>
+                </form>
+                <form method="post" action="/alerts/{{ alert.id }}/delete"
+                      onsubmit="return confirm('Удалить алерт?')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <button type="submit" class="btn btn-ghost">Удалить</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+
+<section class="card" style="margin-top:16px; max-width:560px">
+  <h2>Новый алерт</h2>
+
+  {% if not has_watchlist %}
+    <div class="flash flash-warn">
+      Список отслеживания пуст, поэтому предлагаются самые ликвидные пары.
+      Алерты по RSI и изменению за период считаются по свечам, а свечи
+      фоновый процесс качает только по отслеживаемым парам — добавьте
+      нужную на странице рынка.
+    </div>
+  {% endif %}
+
+  <form method="post" action="/alerts" id="alert-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="field">
+      <label for="market_id">Пара</label>
+      <select id="market_id" name="market_id" required>
+        {% for market in markets %}
+          <option value="{{ market.id }}">{{ market.symbol }} · {{ market.exchange }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="type_code">Условие</label>
+      <select id="type_code" name="type_code" required>
+        {% for type in alert_types %}
+          <option value="{{ type.code }}">{{ type.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field" data-for="price_above price_below">
+      <label for="level">Уровень цены</label>
+      <input type="text" id="level" name="level" inputmode="decimal" placeholder="70000">
+    </div>
+
+    <div class="field" data-for="pct_change">
+      <label for="pct">Изменение, %</label>
+      <input type="text" id="pct" name="pct" inputmode="decimal" placeholder="5">
+      <div class="dim">Отрицательное значение — падение.</div>
+    </div>
+
+    <div class="field" data-for="pct_change">
+      <label for="window_minutes">За период, минут</label>
+      <input type="number" id="window_minutes" name="window_minutes" value="60" min="5" max="1440">
+    </div>
+
+    <div class="field" data-for="rsi">
+      <label for="threshold">Порог RSI</label>
+      <input type="text" id="threshold" name="threshold" inputmode="decimal" placeholder="70">
+    </div>
+
+    <div class="field" data-for="rsi">
+      <label for="direction">Направление</label>
+      <select id="direction" name="direction">
+        <option value="above">поднялся выше порога</option>
+        <option value="below">опустился ниже порога</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="cooldown_minutes">Пауза между срабатываниями, минут</label>
+      <input type="number" id="cooldown_minutes" name="cooldown_minutes" value="60" min="1" max="1440">
+      <div class="dim">
+        Без паузы алерт «цена выше X» звонил бы на каждой проверке, пока
+        цена держится выше уровня.
+      </div>
+    </div>
+
+    <label class="check">
+      <input type="checkbox" name="notify_web" value="true" checked>
+      <span>Уведомление в панели</span>
+    </label>
+    <label class="check" style="margin-bottom:16px">
+      <input type="checkbox" name="notify_telegram" value="true" checked>
+      <span>Сообщение в Telegram</span>
+    </label>
+
+    <button type="submit" class="btn btn-primary">Создать алерт</button>
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Показываем только те поля, которые нужны выбранному условию:
+  // иначе форма выглядит как анкета, где половина граф лишняя.
+  (function () {
+    var type = document.getElementById('type_code');
+    var fields = document.querySelectorAll('#alert-form .field[data-for]');
+
+    function sync() {
+      fields.forEach(function (field) {
+        var applies = field.dataset.for.split(' ').indexOf(type.value) !== -1;
+        field.hidden = !applies;
+        field.querySelectorAll('input, select').forEach(function (input) {
+          input.disabled = !applies;
+        });
+      });
+    }
+
+    type.addEventListener('change', sync);
+    sync();
+  })();
+</script>
+{% endblock %}

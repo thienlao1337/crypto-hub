@@ -1,0 +1,24 @@
+{% extends "app/base.html" %}
+{% block title %}Уведомления — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<h1>Уведомления</h1>
+
+<section class="card">
+  {% if not items %}
+    <p class="dim">Пока пусто. Здесь появятся сработавшие алерты и сигналы.</p>
+  {% else %}
+    <div class="signal-list">
+      {% for item in items %}
+      <article class="signal">
+        <div class="signal-head">
+          <strong>{{ item.title }}</strong>
+          <span class="dim signal-time">{{ item.created_at.strftime('%d.%m %H:%M') }}</span>
+        </div>
+        <p class="signal-reason">{{ item.body }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -8,6 +8,14 @@
     <p class="muted" style="margin:0">{{ exchange_code }} · спот</p>
   </div>
 
+  <form method="post" action="/market/watch/{{ market.id }}" class="watch-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="back" value="/market/{{ exchange_code }}/{{ slug }}">
+    <button type="submit" class="btn {{ 'btn-ghost' if is_watched else 'btn-primary' }}">
+      {{ '★ В отслеживаемых' if is_watched else '☆ Отслеживать' }}
+    </button>
+  </form>
+
   <div class="segmented">
     {% for tf in timeframes %}
       <a href="/market/{{ exchange_code }}/{{ slug }}?timeframe={{ tf.code }}"

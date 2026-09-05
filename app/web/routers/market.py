@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Form, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,8 +14,8 @@ from app.exchanges.ccxt_client import CcxtAdapter
 from app.exchanges.ws_hub import CHANNEL_ORDER_BOOK, CHANNEL_TRADES, hub
 from app.models import Exchange, Market, MarketTicker, User
 from app.models.market import MARKET_TYPE_SPOT
-from app.services import candle_service, market_service
-from app.web import auth
+from app.services import candle_service, market_service, watchlist_service
+from app.web import auth, flash
 from app.web.templates_env import templates
 
 logger = logging.getLogger(__name__)
@@ -129,6 +129,36 @@ async def candles_api(
     }
 
 
+@router.post("/watch/{market_id}")
+async def toggle_watch(
+    request: Request,
+    market_id: int,
+    back: str = Form("/market"),
+    csrf_token: str = Form(""),
+    user: User = Depends(auth.require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Добавить пару в список отслеживания или убрать из него."""
+    auth.verify_csrf(request, csrf_token)
+
+    try:
+        watched = await watchlist_service.toggle(session, user, market_id)
+    except watchlist_service.WatchlistError as exc:
+        await session.rollback()
+        flash.error(request, str(exc))
+        return RedirectResponse(back, status_code=303)
+
+    await session.commit()
+    flash.success(
+        request,
+        "Пара добавлена в отслеживаемые — по ней пойдут свечи и сигналы."
+        if watched
+        else "Пара убрана из отслеживаемых.",
+    )
+    # Открытый редирект недопустим: возвращаем только внутрь панели.
+    return RedirectResponse(back if back.startswith("/") else "/market", status_code=303)
+
+
 @router.get("/{exchange_code}/{slug}", response_class=HTMLResponse)
 async def market_page(
     request: Request,
@@ -165,6 +195,7 @@ async def market_page(
             "timeframes": timeframes,
             "selected_timeframe": selected,
             "comparison": comparison,
+            "is_watched": await watchlist_service.is_watched(session, user, market.id),
             "indicators_json": json.dumps(DEFAULT_INDICATORS),
         },
     )
