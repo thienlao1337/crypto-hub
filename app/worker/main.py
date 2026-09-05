@@ -11,7 +11,7 @@ import signal
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.config import get_settings
-from app.worker import tasks
+from app.worker import delivery, tasks
 
 logging.basicConfig(
     level=logging.INFO,
@@ -82,6 +82,12 @@ def build_scheduler() -> AsyncIOScheduler:
         "interval",
         seconds=settings.evaluate_alerts_interval,
         id="evaluate_alerts",
+    )
+    scheduler.add_job(
+        delivery.deliver_pending,
+        "interval",
+        seconds=15,
+        id="deliver_telegram",
     )
     scheduler.add_job(
         tasks.evaluate_signal_outcomes,

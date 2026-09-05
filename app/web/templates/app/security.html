@@ -40,6 +40,40 @@
   </section>
 
   <section class="card">
+    <h2>Telegram</h2>
+
+    {% if telegram_code %}
+      <div class="flash flash-success">
+        Отправьте боту этот код одним сообщением — он привяжет чат к вашему
+        аккаунту. Код действует 15 минут.
+      </div>
+      <div class="recovery-codes" style="grid-template-columns: 1fr; font-size: 1.3rem">
+        {{ telegram_code }}
+      </div>
+    {% endif %}
+
+    {% if current_user.telegram_id %}
+      <p>
+        Чат привязан{% if current_user.telegram_username %}:
+        <span class="mono">@{{ current_user.telegram_username }}</span>{% endif %}.
+      </p>
+      <form method="post" action="/settings/telegram/unlink">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-ghost">Отвязать</button>
+      </form>
+    {% else %}
+      <p class="muted">
+        Привяжите чат, чтобы получать алерты и сигналы в Telegram и
+        спрашивать портфель командой прямо в переписке.
+      </p>
+      <form method="post" action="/settings/telegram/link">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-primary">Получить код привязки</button>
+      </form>
+    {% endif %}
+  </section>
+
+  <section class="card">
     <h2>Смена пароля</h2>
     <form method="post" action="/settings/password">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

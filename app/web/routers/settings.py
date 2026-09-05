@@ -28,6 +28,7 @@ async def security_page(
             "current_user": user,
             "csrf_token": auth.issue_csrf_token(request),
             "recovery_left": await user_service.unused_recovery_codes_count(session, user),
+            "telegram_code": request.session.pop("telegram_code", None),
         },
     )
 
@@ -59,6 +60,44 @@ async def change_password(
 
     await session.commit()
     flash.success(request, "Пароль изменён.")
+    return RedirectResponse(PAGE, status_code=303)
+
+
+@router.post("/telegram/link")
+async def link_telegram(
+    request: Request,
+    csrf_token: str = Form(""),
+    user: User = Depends(auth.require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Выдать одноразовый код для привязки чата."""
+    auth.verify_csrf(request, csrf_token)
+
+    code = await user_service.issue_telegram_link_code(session, user)
+    await session.commit()
+
+    # Код нужен ровно на одну отрисовку, поэтому кладём его в сессию и
+    # забираем при следующем показе страницы: в адресе ему не место.
+    request.session["telegram_code"] = code
+    return RedirectResponse(PAGE, status_code=303)
+
+
+@router.post("/telegram/unlink")
+async def unlink_telegram(
+    request: Request,
+    csrf_token: str = Form(""),
+    user: User = Depends(auth.require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    auth.verify_csrf(request, csrf_token)
+
+    user.telegram_id = None
+    user.telegram_username = None
+    user.telegram_link_code = None
+    user.telegram_link_expires_at = None
+    await session.commit()
+
+    flash.warn(request, "Telegram отвязан — уведомления в чат больше не придут.")
     return RedirectResponse(PAGE, status_code=303)
 
 

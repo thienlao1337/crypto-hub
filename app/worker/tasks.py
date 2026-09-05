@@ -32,6 +32,7 @@ from app.models.exchange import KEY_STATUS_INVALID
 from app.services import exchange_keys_service as keys_service
 from app.services import (
     alert_service,
+    notification_service,
     candle_service,
     market_service,
     portfolio_service,
@@ -275,6 +276,7 @@ async def evaluate_signals() -> None:
                             "Сигнал %s по %s: %s",
                             signal.direction, market.symbol, signal.reason,
                         )
+                        await _notify_signal(session, rule, signal, market.symbol)
                 await session.commit()
         except Exception:
             logger.exception("Правило сигналов %s не отработало", rule_id)
@@ -302,6 +304,34 @@ async def evaluate_alerts() -> None:
             logger.info("Алерт сработал: %s", trigger.message)
     except Exception:
         logger.exception("Не удалось проверить алерты")
+
+
+async def _notify_signal(session, rule: SignalRule, signal, symbol: str) -> None:
+    """Положить сигнал в ленту тем, кто следит за этой парой.
+
+    Для общего правила (user_id пуст) адресаты определяются списками
+    отслеживания: рассылать всем подряд сигнал по чужой паре незачем.
+    """
+    if rule.user_id is not None:
+        recipients = [rule.user_id]
+    else:
+        result = await session.execute(
+            select(WatchlistItem.user_id)
+            .where(WatchlistItem.market_id == signal.market_id)
+            .distinct()
+        )
+        recipients = [user_id for (user_id,) in result]
+
+    word = "покупка" if signal.direction == "buy" else "продажа"
+    for user_id in recipients:
+        await notification_service.push(
+            session,
+            user_id=user_id,
+            kind=notification_service.KIND_SIGNAL,
+            title=f"Сигнал: {symbol} — {word}",
+            body=signal.reason,
+            payload={"signal_id": signal.id, "symbol": symbol},
+        )
 
 
 async def _candle_targets() -> list[tuple[int, int]]:
