@@ -138,6 +138,7 @@ async def update_tickers(
         row.high_24h = info.high_24h
         row.low_24h = info.low_24h
         row.volume_24h = info.volume_24h
+        row.quote_volume_24h = info.quote_volume_24h
         row.change_24h_pct = info.change_24h_pct
         updated += 1
 

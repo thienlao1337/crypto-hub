@@ -1,0 +1,51 @@
+{% extends "app/base.html" %}
+{% block title %}Рынок — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<h1>Рынок</h1>
+<p class="muted">Пары с наибольшим оборотом за сутки.</p>
+
+<section class="card">
+  {% if not markets %}
+    <p class="dim">
+      Котировок пока нет. Фоновый процесс загружает их при первом запуске —
+      обновите страницу через минуту.
+    </p>
+  {% else %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Пара</th>
+            <th>Биржа</th>
+            <th class="right">Цена</th>
+            <th class="right">24ч</th>
+            <th class="right">Оборот 24ч</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in markets %}
+          <tr>
+            <td>
+              <a href="/market/{{ row.exchange }}/{{ row.slug }}"><strong>{{ row.symbol }}</strong></a>
+            </td>
+            <td class="dim">{{ row.exchange }}</td>
+            <td class="num right">{{ row.ticker.last|amount }}</td>
+            <td class="num right">
+              {% if row.ticker.change_24h_pct is none %}
+                <span class="dim">—</span>
+              {% else %}
+                <span class="{{ 'up' if row.ticker.change_24h_pct >= 0 else 'down' }}">
+                  {{ row.ticker.change_24h_pct|pct(2, signed=True) }}
+                </span>
+              {% endif %}
+            </td>
+            <td class="num right dim">{{ row.ticker.quote_volume_24h|usd(0) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

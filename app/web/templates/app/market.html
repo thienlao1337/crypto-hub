@@ -1,0 +1,260 @@
+{% extends "app/base.html" %}
+{% block title %}{{ symbol }} — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<div class="page-head">
+  <div>
+    <h1>{{ symbol }}</h1>
+    <p class="muted" style="margin:0">{{ exchange_code }} · спот</p>
+  </div>
+
+  <div class="segmented">
+    {% for tf in timeframes %}
+      <a href="/market/{{ exchange_code }}/{{ slug }}?timeframe={{ tf.code }}"
+         class="{{ 'active' if tf.code == selected_timeframe.code }}">{{ tf.code }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr))">
+  <section class="card">
+    <h2>Цена</h2>
+    <div class="num stat-value">{{ ticker.last|amount if ticker else '—' }}</div>
+    {% if ticker and ticker.change_24h_pct is not none %}
+      <div class="num {{ 'up' if ticker.change_24h_pct >= 0 else 'down' }}">
+        {{ ticker.change_24h_pct|pct(2, signed=True) }} за 24ч
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Сравнение бирж</h2>
+    {% if comparison|length < 2 %}
+      <p class="dim">Пара торгуется только на одной подключённой бирже.</p>
+    {% else %}
+      <table class="table compact">
+        <tbody>
+          {% for row in comparison %}
+          <tr>
+            <td>{{ row.exchange }}</td>
+            <td class="num right">{{ row.last|amount }}</td>
+            <td class="num right dim" title="спред между лучшей покупкой и продажей">
+              {{ row.spread_pct|pct(3) }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% set best = comparison|sort(attribute='last')|first %}
+      {% set worst = comparison|sort(attribute='last')|last %}
+      {% if best.last and worst.last and best.last > 0 %}
+        <div class="dim" style="margin-top:8px">
+          Разница цен: {{ ((worst.last - best.last) / best.last * 100)|pct(3) }}
+        </div>
+      {% endif %}
+    {% endif %}
+  </section>
+</div>
+
+<section class="card">
+  <div class="page-head">
+    <h2>График</h2>
+    <div class="indicator-toggles" id="indicator-toggles">
+      <label class="check"><input type="checkbox" data-ind="ema" checked> <span>EMA 9/21</span></label>
+      <label class="check"><input type="checkbox" data-ind="sma"> <span>SMA 50</span></label>
+      <label class="check"><input type="checkbox" data-ind="bollinger"> <span>Боллинджер</span></label>
+      <label class="check"><input type="checkbox" data-ind="rsi" checked> <span>RSI</span></label>
+      <label class="check"><input type="checkbox" data-ind="macd"> <span>MACD</span></label>
+    </div>
+  </div>
+
+  <div id="price-chart" class="chart" style="min-height:360px"></div>
+  <div id="rsi-chart" class="chart" style="min-height:130px"></div>
+  <div id="macd-chart" class="chart" style="min-height:130px" hidden></div>
+  <p class="dim" id="chart-status">Загружаем свечи…</p>
+</section>
+
+<div class="disclaimer">
+  Индикаторы — технический анализ на исторических данных. Это не
+  финансовая рекомендация.
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+  (function () {
+    var MARKET_ID = {{ market.id }};
+    var TIMEFRAME = "{{ selected_timeframe.code }}";
+    var status = document.getElementById('chart-status');
+
+    function token(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    function makeChart(host, height) {
+      return LightweightCharts.createChart(host, {
+        height: height,
+        rightPriceScale: { borderVisible: false },
+        timeScale: { borderVisible: false, timeVisible: true }
+      });
+    }
+
+    var priceHost = document.getElementById('price-chart');
+    var rsiHost = document.getElementById('rsi-chart');
+    var macdHost = document.getElementById('macd-chart');
+
+    var priceChart = makeChart(priceHost, 360);
+    var rsiChart = makeChart(rsiHost, 130);
+    var macdChart = makeChart(macdHost, 130);
+    var charts = [priceChart, rsiChart, macdChart];
+
+    // Шкалы цен у панелей разной ширины: у цены подписи вроде 84000.00,
+    // у RSI — 80.00. Без общей минимальной ширины области построения
+    // смещаются, и RSI под свечами показывает сдвинутое время.
+    charts.forEach(function (chart) {
+      chart.priceScale('right').applyOptions({ minimumWidth: 76 });
+    });
+
+    var candles = priceChart.addCandlestickSeries({ borderVisible: false });
+    var overlays = {};
+    var rsiSeries = rsiChart.addLineSeries({ lineWidth: 2 });
+    var macdSeries = macdChart.addLineSeries({ lineWidth: 2 });
+    var macdSignal = macdChart.addLineSeries({ lineWidth: 1 });
+    var macdHist = macdChart.addHistogramSeries({});
+
+    function applyTheme() {
+      var border = token('--border');
+      var muted = token('--text-muted');
+      charts.forEach(function (chart) {
+        chart.applyOptions({
+          layout: { background: { color: 'transparent' }, textColor: muted },
+          grid: { vertLines: { color: border }, horzLines: { color: border } }
+        });
+      });
+      candles.applyOptions({
+        upColor: token('--up'), downColor: token('--down'),
+        wickUpColor: token('--up'), wickDownColor: token('--down')
+      });
+      rsiSeries.applyOptions({ color: token('--accent-2') });
+      macdSeries.applyOptions({ color: token('--accent') });
+      macdSignal.applyOptions({ color: token('--accent-2') });
+      Object.keys(overlays).forEach(function (key, index) {
+        overlays[key].applyOptions({ color: token('--cat-' + (index % 8)) });
+      });
+    }
+
+    // Время на всех панелях должно двигаться синхронно, иначе RSI под
+    // графиком показывает не тот участок, что цена над ним.
+    var syncing = false;
+    charts.forEach(function (source) {
+      source.timeScale().subscribeVisibleLogicalRangeChange(function (range) {
+        if (syncing || !range) return;
+        syncing = true;
+        charts.forEach(function (target) {
+          if (target !== source) target.timeScale().setVisibleLogicalRange(range);
+        });
+        syncing = false;
+      });
+    });
+
+    function selected() {
+      var result = {};
+      document.querySelectorAll('#indicator-toggles input').forEach(function (input) {
+        result[input.dataset.ind] = input.checked;
+      });
+      return result;
+    }
+
+    function buildUrl() {
+      var on = selected();
+      var params = new URLSearchParams({ market_id: MARKET_ID, timeframe: TIMEFRAME });
+      if (on.ema) params.set('ema', '9,21');
+      if (on.sma) params.set('sma', '50');
+      if (on.rsi) params.set('rsi', '14');
+      if (on.macd) params.set('macd', 'true');
+      if (on.bollinger) params.set('bollinger', 'true');
+      return '/market/api/candles?' + params.toString();
+    }
+
+    function setOverlay(key, points) {
+      if (!overlays[key]) {
+        overlays[key] = priceChart.addLineSeries({ lineWidth: 1, priceLineVisible: false });
+      }
+      overlays[key].setData(points);
+    }
+
+    function clearOverlays(keep) {
+      Object.keys(overlays).forEach(function (key) {
+        if (keep.indexOf(key) === -1) {
+          priceChart.removeSeries(overlays[key]);
+          delete overlays[key];
+        }
+      });
+    }
+
+    async function load() {
+      status.hidden = false;
+      status.textContent = 'Загружаем свечи…';
+      try {
+        var response = await fetch(buildUrl(), { headers: { 'Accept': 'application/json' } });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        var data = await response.json();
+
+        if (!data.candles.length) {
+          status.textContent = 'Свечей по этой паре пока нет.';
+          return;
+        }
+
+        candles.setData(data.candles);
+
+        var ind = data.indicators || {};
+        var keys = Object.keys(ind).filter(function (key) {
+          return key.indexOf('ema') === 0 || key.indexOf('sma') === 0 || key.indexOf('bb_') === 0;
+        });
+        clearOverlays(keys);
+        keys.forEach(function (key) { setOverlay(key, ind[key]); });
+
+        var on = selected();
+        rsiHost.hidden = !on.rsi;
+        macdHost.hidden = !on.macd;
+        if (on.rsi && ind.rsi) rsiSeries.setData(ind.rsi);
+        if (on.macd && ind.macd) {
+          macdSeries.setData(ind.macd);
+          macdSignal.setData(ind.macd_signal || []);
+          macdHist.setData((ind.macd_histogram || []).map(function (point) {
+            return { time: point.time, value: point.value,
+                     color: point.value >= 0 ? token('--up') : token('--down') };
+          }));
+        }
+
+        applyTheme();
+        resize();
+        status.hidden = true;
+      } catch (error) {
+        status.hidden = false;
+        status.textContent = 'Не удалось загрузить свечи: ' + error.message;
+      }
+    }
+
+    document.getElementById('indicator-toggles').addEventListener('change', load);
+    document.addEventListener('themechange', applyTheme);
+
+    function resize() {
+      charts.forEach(function (chart, index) {
+        var host = [priceHost, rsiHost, macdHost][index];
+        if (host.clientWidth) chart.applyOptions({ width: host.clientWidth });
+      });
+      priceChart.timeScale().fitContent();
+    }
+
+    // Ширину задаём сразу: ResizeObserver срабатывает уже после первой
+    // отрисовки, и без этого свечи занимали лишь часть полотна.
+    new ResizeObserver(resize).observe(priceHost);
+    window.addEventListener('resize', resize);
+
+    applyTheme();
+    load().then(resize);
+  })();
+</script>
+{% endblock %}

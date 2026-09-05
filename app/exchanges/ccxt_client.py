@@ -256,6 +256,7 @@ class CcxtAdapter:
                     high_24h=to_decimal(ticker.get("high")),
                     low_24h=to_decimal(ticker.get("low")),
                     volume_24h=to_decimal(ticker.get("baseVolume")),
+                    quote_volume_24h=to_decimal(ticker.get("quoteVolume")),
                     change_24h_pct=to_decimal(ticker.get("percentage")),
                 )
             )

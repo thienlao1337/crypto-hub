@@ -129,6 +129,10 @@ class MarketTicker(Base):
     high_24h: Mapped[Decimal | None] = mapped_column(Price, nullable=True)
     low_24h: Mapped[Decimal | None] = mapped_column(Price, nullable=True)
     volume_24h: Mapped[Decimal | None] = mapped_column(Amount, nullable=True)
+    # Оборот в валюте котировки. Сортировать рынки по объёму в монетах
+    # бессмысленно: у мемкоинов количество измеряется триллионами, и
+    # они вытесняют всё остальное наверх списка.
+    quote_volume_24h: Mapped[Decimal | None] = mapped_column(Usd, nullable=True)
     change_24h_pct: Mapped[Decimal | None] = mapped_column(Pct, nullable=True)
 
     updated_at: Mapped[datetime] = mapped_column(

@@ -29,10 +29,16 @@ def format_amount(value, max_decimals: int = 8) -> str:
     except (InvalidOperation, TypeError, ValueError):
         return DASH
 
-    quantum = Decimal(1).scaleb(-max_decimals)
+    # У монет вроде BABYDOGE цена меньше 1e-8, и жёсткие восемь знаков
+    # после запятой превращали бы её в ноль. Для значений меньше единицы
+    # считаем не знаки после запятой, а значащие цифры.
+    if number != 0 and abs(number) < 1:
+        leading_zeros = -number.adjusted() - 1
+        max_decimals = min(18, max(max_decimals, leading_zeros + 4))
+
     exponent = number.as_tuple().exponent
     if isinstance(exponent, int) and exponent < -max_decimals:
-        number = number.quantize(quantum)
+        number = number.quantize(Decimal(1).scaleb(-max_decimals))
 
     text = format(number.normalize(), "f")
     return _group(text)
@@ -77,13 +83,30 @@ def _group(text: str) -> str:
     return sign + grouped + (f".{fraction}" if fraction else "")
 
 
+def static_version() -> str:
+    """Метка версии статики для обхода кэша браузера.
+
+    Без неё после деплоя пользователь продолжает видеть старый CSS, пока
+    не сбросит кэш вручную. Берём время изменения таблицы стилей:
+    меняется при каждой сборке образа и не требует отдельного шага.
+    """
+    stylesheet = STATIC_DIR / "css" / "style.css"
+    try:
+        return str(int(stylesheet.stat().st_mtime))
+    except OSError:
+        return "0"
+
+
+STATIC_VERSION = static_version()
+
+
 def _flash_messages(request: Request) -> dict:
     """Отдать шаблону накопленные сообщения и очистить очередь.
 
     Подключено обработчиком контекста, чтобы каждый роутер не тащил их
     в контекст руками и не забывал об этом.
     """
-    return {"flashes": flash.pop_flashes(request)}
+    return {"flashes": flash.pop_flashes(request), "static_version": STATIC_VERSION}
 
 
 templates = Jinja2Templates(

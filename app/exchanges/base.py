@@ -60,6 +60,7 @@ class TickerInfo:
     high_24h: Decimal | None = None
     low_24h: Decimal | None = None
     volume_24h: Decimal | None = None
+    quote_volume_24h: Decimal | None = None
     change_24h_pct: Decimal | None = None
 
 

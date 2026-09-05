@@ -3,7 +3,7 @@
 Позволяет проверять логику, не выходя в сеть и не имея ключей.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from app.exchanges.base import (
@@ -139,3 +139,32 @@ def trade(
         cost=price_dec * amount_dec,
         executed_at=executed_at or datetime.now(timezone.utc),
     )
+
+
+def bar(
+    open_time: datetime,
+    close: str,
+    *,
+    open_: str | None = None,
+    high: str | None = None,
+    low: str | None = None,
+    volume: str = "1",
+) -> OhlcvBar:
+    close_dec = Decimal(close)
+    return OhlcvBar(
+        open_time=open_time,
+        open=Decimal(open_) if open_ else close_dec,
+        high=Decimal(high) if high else close_dec,
+        low=Decimal(low) if low else close_dec,
+        close=close_dec,
+        volume=Decimal(volume),
+    )
+
+
+def hourly_bars(count: int, *, start_price: int = 100, step: int = 1) -> list[OhlcvBar]:
+    """Ряд часовых свечей с равномерным ростом — удобно для индикаторов."""
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    return [
+        bar(base + timedelta(hours=index), str(start_price + index * step))
+        for index in range(count)
+    ]
