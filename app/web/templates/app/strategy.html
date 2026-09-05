@@ -1,0 +1,164 @@
+{% extends "app/base.html" %}
+{% block title %}{{ strategy.name }} — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<div class="page-head">
+  <div>
+    <h1>{{ strategy.name }}</h1>
+    <p class="muted" style="margin:0">{{ symbol }}</p>
+  </div>
+  <a href="/autotrade" class="dim">← Все стратегии</a>
+</div>
+
+{% if strategy.mode == 'live' %}
+  <div class="flash flash-warn">
+    Стратегия в режиме <strong>реальных сделок</strong>. Подтверждено
+    {{ strategy.live_confirmed_at.strftime('%d.%m.%Y %H:%M') }}.
+  </div>
+{% endif %}
+
+{% if risk.is_halted %}
+  <div class="flash flash-error" role="alert">
+    Стратегия остановлена: {{ risk.halted_reason }}
+    <form method="post" action="/autotrade/{{ strategy.id }}/resume" style="margin-top:10px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="btn btn-ghost">Снять остановку</button>
+    </form>
+  </div>
+{% endif %}
+
+<div class="card-grid">
+  <section class="card">
+    <h2>Состояние</h2>
+    <div class="num stat-value">{{ 'работает' if strategy.is_active else 'остановлена' }}</div>
+    <div class="stat-row">
+      <span class="dim">режим</span>
+      <span>
+        {% if strategy.mode == 'live' %}реальные сделки
+        {% elif strategy.mode == 'testnet' %}тестовая сеть
+        {% else %}бумажные сделки{% endif %}
+      </span>
+    </div>
+    <div class="stat-row">
+      <span class="dim">результат за сегодня</span>
+      <span class="num {{ 'up' if risk.realized_pnl_pct >= 0 else 'down' }}">
+        {{ risk.realized_pnl_pct|pct(2, signed=True) }}
+      </span>
+    </div>
+    <div class="stat-row">
+      <span class="dim">сделок за сегодня</span>
+      <span class="num">{{ risk.trades_count }}</span>
+    </div>
+
+    <form method="post" action="/autotrade/{{ strategy.id }}/toggle" style="margin-top:12px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="btn {{ 'btn-ghost' if strategy.is_active else 'btn-primary' }}">
+        {{ 'Остановить' if strategy.is_active else 'Запустить' }}
+      </button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Настройки</h2>
+    <div class="stat-row"><span class="dim">размер позиции</span>
+      <span class="num">{{ strategy.position_size_pct|pct(1) }}</span></div>
+    <div class="stat-row"><span class="dim">максимум на сделку</span>
+      <span class="num">{{ strategy.max_pct_per_trade|pct(1) }}</span></div>
+    <div class="stat-row"><span class="dim">дневной лимит убытка</span>
+      <span class="num">{{ strategy.daily_loss_limit_pct|pct(1) }}</span></div>
+    <div class="stat-row"><span class="dim">стоп-лосс</span>
+      <span class="num">{{ strategy.stop_loss_pct|pct(1) if strategy.stop_loss_pct else '—' }}</span></div>
+    <div class="stat-row"><span class="dim">тейк-профит</span>
+      <span class="num">{{ strategy.take_profit_pct|pct(1) if strategy.take_profit_pct else '—' }}</span></div>
+  </section>
+
+  <section class="card">
+    <h2>Режим</h2>
+    <form method="post" action="/autotrade/{{ strategy.id }}/mode">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <div class="field">
+        <label for="mode">Куда переключить</label>
+        <select id="mode" name="mode">
+          <option value="paper" {{ 'selected' if strategy.mode == 'paper' }}>бумажные сделки</option>
+          <option value="testnet" {{ 'selected' if strategy.mode == 'testnet' }}>тестовая сеть биржи</option>
+          <option value="live" {{ 'selected' if strategy.mode == 'live' }}>реальные сделки</option>
+        </select>
+      </div>
+
+      <label class="check">
+        <input type="checkbox" name="confirm" value="true">
+        <span>Понимаю, что реальные сделки тратят мои деньги</span>
+      </label>
+      <div class="dim" style="margin-bottom:12px">
+        Галочка нужна только для перехода в режим реальных сделок.
+        Переключение режима всегда останавливает стратегию.
+      </div>
+
+      <button type="submit" class="btn btn-ghost">Сменить режим</button>
+    </form>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Ордера</h2>
+  {% if not orders %}
+    <p class="dim">Пока ни одного.</p>
+  {% else %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Время</th>
+            <th>Режим</th>
+            <th>Сторона</th>
+            <th class="right">Объём</th>
+            <th class="right">Цена</th>
+            <th class="right">Стоп / тейк</th>
+            <th>Статус</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for order in orders %}
+          <tr>
+            <td class="num dim">{{ order.opened_at.strftime('%d.%m %H:%M') }}</td>
+            <td class="dim">{{ order.mode }}</td>
+            <td class="{{ 'up' if order.side == 'buy' else 'down' }}">
+              {{ 'покупка' if order.side == 'buy' else 'продажа' }}
+            </td>
+            <td class="num right">{{ order.amount|amount }}</td>
+            <td class="num right">{{ order.price|amount }}</td>
+            <td class="num right dim">
+              {{ order.stop_loss|amount(2) }} / {{ order.take_profit|amount(2) }}
+            </td>
+            <td class="dim">{{ order.status }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+
+<section class="card" style="margin-top:16px">
+  <h2>Журнал</h2>
+  <p class="dim">
+    Записывается всё: выставленный ордер, отказ и его причина, остановка
+    по лимиту. Бот не должен делать ничего необъяснённого.
+  </p>
+
+  {% if not journal %}
+    <p class="dim">Пусто.</p>
+  {% else %}
+    <div class="journal">
+      {% for entry in journal %}
+      <div class="journal-row">
+        <span class="dim num">{{ entry.created_at.strftime('%d.%m %H:%M:%S') }}</span>
+        <span class="badge">{{ entry.event_type }}</span>
+        <span>{{ entry.message }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

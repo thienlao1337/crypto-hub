@@ -90,6 +90,21 @@ class TradeInfo:
 
 
 @dataclass(frozen=True)
+class OrderResult:
+    """Ответ биржи на выставленный ордер."""
+
+    external_id: str
+    symbol: str
+    side: str
+    amount: Decimal
+    price: Decimal | None
+    status: str
+    filled: Decimal = Decimal(0)
+    average_price: Decimal | None = None
+    raw: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class KeyCheck:
     """Результат проверки ключа у самой биржи.
 
@@ -131,6 +146,13 @@ class ExchangeAdapter(Protocol):
         since: datetime | None = None,
         limit: int = 500,
     ) -> list[TradeInfo]: ...
+
+    async def create_market_order(
+        self,
+        symbol: str,
+        side: str,
+        amount: Decimal,
+    ) -> OrderResult: ...
 
     async def close(self) -> None: ...
 

@@ -1,0 +1,155 @@
+{% extends "app/base.html" %}
+{% block title %}Автотрейдинг — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<h1>Автотрейдинг</h1>
+
+{% if not globally_enabled %}
+  <div class="flash flash-warn">
+    Автотрейдинг выключен глобально (<span class="mono">AUTOTRADE_ENABLED=false</span>).
+    Стратегии можно настраивать, но ни одна сделка — даже бумажная — не
+    исполняется, пока флаг не включён в окружении и сервисы не
+    перезапущены.
+  </div>
+{% endif %}
+
+<div class="disclaimer">
+  Стратегия создаётся остановленной и в режиме бумажных сделок. Реальные
+  сделки включаются отдельным подтверждением и только для ключа, которому
+  сама биржа подтвердила право на торговлю. Это не финансовая
+  рекомендация — вы отвечаете за настройки и результат.
+</div>
+
+<section class="card">
+  <h2>Стратегии</h2>
+
+  {% if not strategies %}
+    <p class="dim">Пока ни одной.</p>
+  {% else %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Название</th>
+            <th>Пара</th>
+            <th>Режим</th>
+            <th>Состояние</th>
+            <th class="right">Размер</th>
+            <th class="right">Лимит убытка</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for strategy, symbol in strategies %}
+          <tr class="{{ '' if strategy.is_active else 'row-muted' }}">
+            <td><a href="/autotrade/{{ strategy.id }}"><strong>{{ strategy.name }}</strong></a></td>
+            <td>{{ symbol }}</td>
+            <td>
+              {% if strategy.mode == 'live' %}
+                <span class="badge badge-warn">реальные сделки</span>
+              {% elif strategy.mode == 'testnet' %}
+                <span class="badge">testnet</span>
+              {% else %}
+                <span class="badge">бумажные</span>
+              {% endif %}
+            </td>
+            <td>{{ 'работает' if strategy.is_active else 'остановлена' }}</td>
+            <td class="num right">{{ strategy.position_size_pct|pct(1) }}</td>
+            <td class="num right">{{ strategy.daily_loss_limit_pct|pct(1) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+
+<section class="card" style="margin-top:16px; max-width:600px">
+  <h2>Новая стратегия</h2>
+
+  {% if not accounts %}
+    <p class="dim">
+      Сначала подключите ключ биржи в разделе «Биржи».
+    </p>
+  {% elif not watched %}
+    <p class="dim">
+      Добавьте пару в список отслеживания на странице рынка: стратегия
+      работает по сигналам, а они считаются только по отслеживаемым парам.
+    </p>
+  {% else %}
+  <form method="post" action="/autotrade">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="field">
+      <label for="name">Название</label>
+      <input type="text" id="name" name="name" value="Моя стратегия" maxlength="128" required>
+    </div>
+
+    <div class="field">
+      <label for="signal_rule_id">Правило сигналов</label>
+      <select id="signal_rule_id" name="signal_rule_id" required>
+        {% for rule in rules %}
+          <option value="{{ rule.id }}">{{ rule.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="market_id">Пара</label>
+      <select id="market_id" name="market_id" required>
+        {% for row in watched %}
+          <option value="{{ row.item.market_id }}">{{ row.symbol }} · {{ row.exchange }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="exchange_account_id">Подключение биржи</label>
+      <select id="exchange_account_id" name="exchange_account_id" required>
+        {% for account in accounts %}
+          <option value="{{ account.id }}">
+            {{ account.label }} · {{ account.api_key_masked }}
+            {%- if account.is_testnet %} (testnet){% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label for="position_size_pct">Размер позиции, % депозита</label>
+        <input type="text" id="position_size_pct" name="position_size_pct"
+               inputmode="decimal" value="5" required>
+      </div>
+      <div class="field">
+        <label for="max_pct_per_trade">Максимум на сделку, %</label>
+        <input type="text" id="max_pct_per_trade" name="max_pct_per_trade"
+               inputmode="decimal" value="10" required>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="daily_loss_limit_pct">Дневной лимит убытка, %</label>
+      <input type="text" id="daily_loss_limit_pct" name="daily_loss_limit_pct"
+             inputmode="decimal" value="5" required>
+      <div class="dim">
+        При достижении стратегия останавливает себя сама и пишет причину
+        в журнал.
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label for="stop_loss_pct">Стоп-лосс, % (необязательно)</label>
+        <input type="text" id="stop_loss_pct" name="stop_loss_pct" inputmode="decimal" value="2">
+      </div>
+      <div class="field">
+        <label for="take_profit_pct">Тейк-профит, %</label>
+        <input type="text" id="take_profit_pct" name="take_profit_pct" inputmode="decimal" value="4">
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Создать</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

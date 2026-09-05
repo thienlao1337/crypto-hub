@@ -955,3 +955,31 @@ input::placeholder {
 .result .stat-value {
   margin-top: 0;
 }
+
+/* --- Журнал бота --- */
+
+.journal {
+  display: grid;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.journal-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.journal-row:last-child {
+  border-bottom: none;
+}
+
+@media (max-width: 640px) {
+  .journal-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

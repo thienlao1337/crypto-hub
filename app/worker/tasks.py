@@ -13,17 +13,22 @@
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
+from app.config import get_settings
 from app.db import session_scope
 from app.exchanges.ccxt_client import CcxtAdapter
 from app.models import (
     Alert,
+    BotOrder,
     Exchange,
     ExchangeAccount,
     Market,
+    Signal,
     SignalRule,
+    Strategy,
     Timeframe,
     User,
     WatchlistItem,
@@ -32,6 +37,7 @@ from app.models.exchange import KEY_STATUS_INVALID
 from app.services import exchange_keys_service as keys_service
 from app.services import (
     alert_service,
+    autotrade_service,
     dashboard_service,
     notification_service,
     candle_service,
@@ -349,6 +355,79 @@ async def refresh_global_stats() -> None:
             )
     except Exception:
         logger.exception("Не удалось обновить общерыночные показатели")
+
+
+# Сигнал, пролежавший дольше этого, стратегия не отрабатывает: после
+# простоя бот не должен разом открывать позиции по вчерашним поводам.
+SIGNAL_MAX_AGE = timedelta(minutes=30)
+
+
+async def run_autotrade() -> None:
+    """Отработать свежие сигналы активными стратегиями.
+
+    Глобальный рубильник проверяется и здесь, и в сервисе: задача просто
+    не должна ничего делать при выключенном автотрейдинге.
+    """
+    if not get_settings().autotrade_enabled:
+        return
+
+    async with session_scope() as session:
+        result = await session.execute(
+            select(Strategy.id).where(Strategy.is_active.is_(True)).order_by(Strategy.id)
+        )
+        strategy_ids = [strategy_id for (strategy_id,) in result]
+
+    for strategy_id in strategy_ids:
+        try:
+            await _run_strategy(strategy_id)
+        except Exception:
+            logger.exception("Стратегия %s не отработала", strategy_id)
+
+
+async def _run_strategy(strategy_id: int) -> None:
+    async with session_scope() as session:
+        strategy = await session.get(Strategy, strategy_id)
+        if strategy is None or not strategy.is_active:
+            return
+
+        since = datetime.now(timezone.utc) - SIGNAL_MAX_AGE
+        pending = await session.execute(
+            select(Signal)
+            .outerjoin(
+                BotOrder,
+                (BotOrder.signal_id == Signal.id) & (BotOrder.strategy_id == strategy.id),
+            )
+            .where(
+                Signal.rule_id == strategy.signal_rule_id,
+                Signal.market_id == strategy.market_id,
+                Signal.created_at >= since,
+                BotOrder.id.is_(None),
+            )
+            .order_by(Signal.created_at)
+        )
+        signals = list(pending.scalars())
+        if not signals:
+            return
+
+        adapter = None
+        if strategy.mode != "paper":
+            account = await session.get(ExchangeAccount, strategy.exchange_account_id)
+            adapter = await keys_service.build_adapter(session, account)
+
+        try:
+            for signal in signals:
+                order = await autotrade_service.execute(
+                    session, strategy, signal, adapter=adapter
+                )
+                if order is not None:
+                    logger.info(
+                        "Стратегия %s: ордер %s %s по сигналу %s",
+                        strategy.id, order.side, order.amount, signal.id,
+                    )
+            await session.commit()
+        finally:
+            if adapter is not None:
+                await adapter.close()
 
 
 async def _candle_targets() -> list[tuple[int, int]]:

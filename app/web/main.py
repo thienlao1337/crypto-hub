@@ -16,6 +16,7 @@ from app.services import user_service
 from app.web import auth
 from app.web.routers import alerts as alerts_router
 from app.web.routers import auth as auth_router
+from app.web.routers import autotrade as autotrade_router
 from app.web.routers import dashboard as dashboard_router
 from app.web.routers import invites as invites_router
 from app.web.routers import keys as keys_router
@@ -87,6 +88,7 @@ app.include_router(signals_router.router)
 app.include_router(alerts_router.router)
 app.include_router(notifications_router.router)
 app.include_router(tools_router.router)
+app.include_router(autotrade_router.router)
 app.include_router(keys_router.router)
 app.include_router(settings_router.router)
 app.include_router(invites_router.router)

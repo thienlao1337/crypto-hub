@@ -21,6 +21,7 @@ from app.exchanges.base import (
     ExchangeUnavailable,
     KeyCheck,
     MarketInfo,
+    OrderResult,
     OhlcvBar,
     TickerInfo,
     TradeInfo,
@@ -215,6 +216,36 @@ class CcxtAdapter:
                 )
             )
         return trades
+
+    async def create_market_order(
+        self,
+        symbol: str,
+        side: str,
+        amount: Decimal,
+    ) -> OrderResult:
+        """Выставить рыночный ордер.
+
+        Только рыночные: лимитный требует управления жизненным циклом
+        заявки, а стратегии из ТЗ входят и выходят по рынку.
+        """
+        if side not in ("buy", "sell"):
+            raise ExchangeError(f"Неизвестное направление ордера: {side}")
+
+        raw = await self._call(
+            self._client.create_order, symbol, "market", side, float(amount)
+        )
+
+        return OrderResult(
+            external_id=str(raw.get("id") or ""),
+            symbol=raw.get("symbol") or symbol,
+            side=raw.get("side") or side,
+            amount=to_decimal(raw.get("amount")) or amount,
+            price=to_decimal(raw.get("price")),
+            status=raw.get("status") or "unknown",
+            filled=to_decimal(raw.get("filled")) or Decimal(0),
+            average_price=to_decimal(raw.get("average")),
+            raw=raw.get("info") or {},
+        )
 
     # --- Рыночные данные (ключи не нужны) ---
 
