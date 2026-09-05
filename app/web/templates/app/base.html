@@ -25,7 +25,7 @@
       <span aria-hidden="true">🔔</span>
       <span class="bell-badge" id="unread-badge" hidden>0</span>
     </a>
-    <span class="dim">{{ current_user.email }}</span>
+    <span class="dim user-email">{{ current_user.email }}</span>
     <form method="post" action="/logout">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" class="btn btn-ghost">Выйти</button>
