@@ -302,20 +302,33 @@ class CcxtAdapter:
         try:
             return await method(*args)
         except ccxt.AuthenticationError as exc:
-            raise ExchangeAuthError(f"Ключ отклонён биржей: {exc}") from exc
+            raise ExchangeAuthError(self._explain(exc, "Биржа отклонила ключ.")) from exc
         except ccxt.PermissionDenied as exc:
-            raise ExchangeAuthError(f"Недостаточно прав у ключа: {exc}") from exc
+            raise ExchangeAuthError(
+                self._explain(exc, "У ключа недостаточно прав для этой операции.")
+            ) from exc
         except ccxt.RateLimitExceeded as exc:
-            raise ExchangeRateLimited(f"Превышен лимит запросов: {exc}") from exc
+            raise ExchangeRateLimited(
+                self._explain(exc, "Биржа ограничила частоту запросов.")
+            ) from exc
         except (ccxt.NetworkError, ccxt.ExchangeNotAvailable) as exc:
-            raise ExchangeUnavailable(_describe(exc)) from exc
+            raise ExchangeUnavailable(
+                self._explain(exc, "Биржа сейчас недоступна.")
+            ) from exc
         except ccxt.BaseError as exc:
-            raise ExchangeError(_describe(exc)) from exc
+            raise ExchangeError(
+                self._explain(exc, f"Биржа вернула ошибку ({exc.__class__.__name__}).")
+            ) from exc
 
+    def _explain(self, exc: Exception, message: str) -> str:
+        """Человеческое сообщение наружу, подробности — в журнал.
 
-def _describe(exc: Exception) -> str:
-    text = str(exc).strip()
-    return text or exc.__class__.__name__
+        Текст ccxt — это обычно URL запроса вместе с подписью и служебным
+        JSON. Такое попадает в last_error и оттуда в интерфейс, где оно
+        бесполезно пользователю и ничего не объясняет.
+        """
+        logger.warning("%s: %s", self.code, exc)
+        return message
 
 
 def _to_millis(value: datetime | None) -> int | None:

@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     # --- Интервалы фоновых задач, секунды ---
     sync_balances_interval: int = 60
     sync_trades_interval: int = 300
+    sync_tickers_interval: int = 60
     poll_candles_interval: int = 30
     evaluate_alerts_interval: int = 15
     evaluate_signals_interval: int = 60

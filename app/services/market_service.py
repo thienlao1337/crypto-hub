@@ -97,19 +97,40 @@ async def update_tickers(
     *,
     symbols: list[str] | None = None,
 ) -> int:
-    """Записать текущее состояние рынков в срез market_tickers."""
-    tickers = await adapter.fetch_tickers(symbols)
-    updated = 0
+    """Записать текущее состояние рынков в срез market_tickers.
 
+    Пары и существующие срезы читаются двумя запросами, а не по одному
+    на символ: у биржи их под тысячу, и обход по одному превращал бы
+    обычное обновление котировок в сотни обращений к базе.
+    """
+    tickers = await adapter.fetch_tickers(symbols)
+    if not tickers:
+        return 0
+
+    markets = await session.execute(
+        select(Market.id, Market.symbol).where(
+            Market.exchange_id == exchange.id,
+            Market.market_type == MARKET_TYPE_SPOT,
+        )
+    )
+    market_id_by_symbol = {symbol: market_id for market_id, symbol in markets}
+
+    existing = await session.execute(
+        select(MarketTicker).where(MarketTicker.market_id.in_(market_id_by_symbol.values()))
+    )
+    rows_by_market = {row.market_id: row for row in existing.scalars()}
+
+    updated = 0
     for info in tickers:
-        market = await get_market(session, exchange.id, info.symbol)
-        if market is None:
+        market_id = market_id_by_symbol.get(info.symbol)
+        if market_id is None:
             continue
 
-        row = await session.get(MarketTicker, market.id)
+        row = rows_by_market.get(market_id)
         if row is None:
-            row = MarketTicker(market_id=market.id)
+            row = MarketTicker(market_id=market_id)
             session.add(row)
+            rows_by_market[market_id] = row
 
         row.last = info.last
         row.bid = info.bid

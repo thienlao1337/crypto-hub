@@ -45,6 +45,20 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  worker:
+    build: .
+    restart: unless-stopped
+    command: python -m app.worker.main
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
   # Прогон тестов в том же окружении, что и рантайм:
   #   docker compose --profile test run --rm tests
   tests:
