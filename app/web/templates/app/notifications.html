@@ -2,7 +2,10 @@
 {% block title %}Уведомления — Crypto Hub{% endblock %}
 
 {% block app_content %}
-<h1>Уведомления</h1>
+<div class="page-head">
+  <h1>Уведомления</h1>
+  <a href="/settings/notifications" class="btn btn-ghost">Настройки</a>
+</div>
 
 <section class="card">
   {% if not items %}

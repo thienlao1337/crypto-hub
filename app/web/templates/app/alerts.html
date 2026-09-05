@@ -1,4 +1,5 @@
 {% extends "app/base.html" %}
+{% from "app/_alert_fields.html" import alert_fields, alert_fields_script %}
 {% block title %}Алерты — Crypto Hub{% endblock %}
 
 {% block app_content %}
@@ -44,6 +45,7 @@
             </td>
             <td>
               <div class="row-actions">
+                <a href="/alerts/{{ alert.id }}/edit" class="btn btn-ghost">Изменить</a>
                 <form method="post" action="/alerts/{{ alert.id }}/toggle">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                   <button type="submit" class="btn btn-ghost">
@@ -79,97 +81,12 @@
 
   <form method="post" action="/alerts" id="alert-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-
-    <div class="field">
-      <label for="market_id">Пара</label>
-      <select id="market_id" name="market_id" required>
-        {% for market in markets %}
-          <option value="{{ market.id }}">{{ market.symbol }} · {{ market.exchange }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <div class="field">
-      <label for="type_code">Условие</label>
-      <select id="type_code" name="type_code" required>
-        {% for type in alert_types %}
-          <option value="{{ type.code }}">{{ type.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <div class="field" data-for="price_above price_below">
-      <label for="level">Уровень цены</label>
-      <input type="text" id="level" name="level" inputmode="decimal" placeholder="70000">
-    </div>
-
-    <div class="field" data-for="pct_change">
-      <label for="pct">Изменение, %</label>
-      <input type="text" id="pct" name="pct" inputmode="decimal" placeholder="5">
-      <div class="dim">Отрицательное значение — падение.</div>
-    </div>
-
-    <div class="field" data-for="pct_change">
-      <label for="window_minutes">За период, минут</label>
-      <input type="number" id="window_minutes" name="window_minutes" value="60" min="5" max="1440">
-    </div>
-
-    <div class="field" data-for="rsi">
-      <label for="threshold">Порог RSI</label>
-      <input type="text" id="threshold" name="threshold" inputmode="decimal" placeholder="70">
-    </div>
-
-    <div class="field" data-for="rsi">
-      <label for="direction">Направление</label>
-      <select id="direction" name="direction">
-        <option value="above">поднялся выше порога</option>
-        <option value="below">опустился ниже порога</option>
-      </select>
-    </div>
-
-    <div class="field">
-      <label for="cooldown_minutes">Пауза между срабатываниями, минут</label>
-      <input type="number" id="cooldown_minutes" name="cooldown_minutes" value="60" min="1" max="1440">
-      <div class="dim">
-        Без паузы алерт «цена выше X» звонил бы на каждой проверке, пока
-        цена держится выше уровня.
-      </div>
-    </div>
-
-    <label class="check">
-      <input type="checkbox" name="notify_web" value="true" checked>
-      <span>Уведомление в панели</span>
-    </label>
-    <label class="check" style="margin-bottom:16px">
-      <input type="checkbox" name="notify_telegram" value="true" checked>
-      <span>Сообщение в Telegram</span>
-    </label>
-
+    {{ alert_fields(alert_types, markets, values) }}
     <button type="submit" class="btn btn-primary">Создать алерт</button>
   </form>
 </section>
 {% endblock %}
 
 {% block scripts %}
-<script>
-  // Показываем только те поля, которые нужны выбранному условию:
-  // иначе форма выглядит как анкета, где половина граф лишняя.
-  (function () {
-    var type = document.getElementById('type_code');
-    var fields = document.querySelectorAll('#alert-form .field[data-for]');
-
-    function sync() {
-      fields.forEach(function (field) {
-        var applies = field.dataset.for.split(' ').indexOf(type.value) !== -1;
-        field.hidden = !applies;
-        field.querySelectorAll('input, select').forEach(function (input) {
-          input.disabled = !applies;
-        });
-      });
-    }
-
-    type.addEventListener('change', sync);
-    sync();
-  })();
-</script>
+{{ alert_fields_script() }}
 {% endblock %}

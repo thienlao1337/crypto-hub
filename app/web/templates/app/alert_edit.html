@@ -1,0 +1,45 @@
+{% extends "app/base.html" %}
+{% from "app/_alert_fields.html" import alert_fields, alert_fields_script %}
+{% block title %}Изменить алерт — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<div class="page-head">
+  <h1>Изменить алерт</h1>
+  <a href="/alerts" class="dim">← Все алерты</a>
+</div>
+
+<section class="card" style="max-width:560px">
+  <form method="post" action="/alerts/{{ alert.id }}" id="alert-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {{ alert_fields(alert_types, markets, values) }}
+
+    <div class="dim" style="margin-bottom:12px">
+      Смена условия снимает паузу после последнего срабатывания: новое
+      условие не должно молчать из-за старого.
+    </div>
+
+    <button type="submit" class="btn btn-primary">Сохранить</button>
+    <a href="/alerts" class="btn btn-ghost">Отмена</a>
+  </form>
+</section>
+
+<section class="card" style="margin-top:16px">
+  <h2>Срабатывания</h2>
+  {% if not triggers %}
+    <p class="dim">Пока ни одного.</p>
+  {% else %}
+    <div class="journal">
+      {% for trigger in triggers %}
+      <div class="journal-row">
+        <span class="dim num">{{ trigger.triggered_at.strftime('%d.%m %H:%M:%S') }}</span>
+        <span>{{ trigger.message }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+{{ alert_fields_script() }}
+{% endblock %}

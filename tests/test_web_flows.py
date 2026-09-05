@@ -6,15 +6,20 @@ session.rollback() нельзя обращаться к загруженным �
 падала с MissingGreenlet, а пользователь видел «Что-то сломалось».
 """
 
+from decimal import Decimal
+
 import httpx
 import pytest_asyncio
+from sqlalchemy import select
 
 from app.db import get_session
 from app.exchanges.base import KeyCheck
-from app.models import Exchange
+from app.models import AlertType, Exchange, MarketTicker, User
+from app.services import alert_service, market_service
 from app.services import exchange_keys_service as keys_service
-from app.services import user_service
+from app.services import notification_service, user_service
 from app.web.main import app
+from tests import fakes
 
 PASSWORD = "owner-password-1"
 
@@ -243,3 +248,159 @@ async def test_portfolio_without_accounts(logged_in):
     page = await logged_in.get("/portfolio")
     assert page.status_code == 200
     assert "Нет подключений" in page.text
+
+
+# --- Алерты ---
+
+
+@pytest_asyncio.fixture
+async def alert(logged_in, session):
+    """Один алерт по BTC/USDT, чтобы было что редактировать."""
+    for order, (code, name) in enumerate(
+        [
+            ("price_above", "Цена выше уровня"),
+            ("price_below", "Цена ниже уровня"),
+            ("pct_change", "Изменение в процентах"),
+            ("rsi", "Уровень RSI"),
+        ]
+    ):
+        session.add(AlertType(code=code, name=name, sort_order=order))
+    await session.flush()
+
+    exchange = await session.scalar(select(Exchange).where(Exchange.code == "bybit"))
+    await market_service.sync_markets(
+        session, exchange, fakes.FakeAdapter(markets=[fakes.market("BTC/USDT", "BTC", "USDT")])
+    )
+    market = await market_service.get_market(session, exchange.id, "BTC/USDT")
+    session.add(MarketTicker(market_id=market.id, last=Decimal("80000")))
+
+    user = await session.scalar(select(User).where(User.email == "owner@example.com"))
+    row = await alert_service.create_alert(
+        session, user,
+        market_id=market.id,
+        type_code="price_above",
+        params={"level": "79000"},
+    )
+    await session.commit()
+
+    # Отдаём простые значения, а не ORM-объекты: роутер на ошибке ввода
+    # делает rollback, и загруженный объект после этого протухает — тест
+    # падал бы на обращении к его полю, а не на проверке поведения.
+    return {"alert_id": row.id, "market_id": market.id, "user_id": user.id}
+
+
+async def test_alerts_page_lists_edit_link(logged_in, alert):
+    page = await logged_in.get("/alerts")
+
+    assert page.status_code == 200
+    assert f'/alerts/{alert["alert_id"]}/edit' in page.text
+
+
+async def test_edit_form_is_prefilled(logged_in, alert):
+    page = await logged_in.get(f'/alerts/{alert["alert_id"]}/edit')
+
+    assert page.status_code == 200
+    assert 'value="79000"' in page.text
+
+
+async def test_alert_edited_through_form(logged_in, session, alert):
+    page = await logged_in.get(f'/alerts/{alert["alert_id"]}/edit')
+    response = await logged_in.post(
+        f'/alerts/{alert["alert_id"]}',
+        data={
+            "market_id": alert["market_id"],
+            "type_code": "price_below",
+            "level": "70000",
+            "cooldown_minutes": 30,
+            "notify_web": "true",
+            "csrf_token": _csrf(page.text),
+        },
+    )
+
+    assert response.status_code == 303
+    user = await session.get(User, alert["user_id"])
+    reloaded = await alert_service.get_alert(session, user, alert["alert_id"])
+    assert reloaded.params == {"level": "70000"}
+    assert reloaded.cooldown_seconds == 1800
+    # Галочку Telegram сняли — форма должна это донести, а не проигнорировать.
+    assert reloaded.notify_telegram is False
+
+
+async def test_bad_edit_returns_message_not_500(logged_in, alert):
+    """После отката сервис не должен ронять страницу обращением к алерту."""
+    page = await logged_in.get(f'/alerts/{alert["alert_id"]}/edit')
+    response = await logged_in.post(
+        f'/alerts/{alert["alert_id"]}',
+        data={
+            "market_id": alert["market_id"],
+            "type_code": "price_above",
+            "level": "-1",
+            "cooldown_minutes": 30,
+            "csrf_token": _csrf(page.text),
+        },
+    )
+
+    assert response.status_code == 303
+    follow = await logged_in.get(f'/alerts/{alert["alert_id"]}/edit')
+    assert "Укажите положительный уровень цены." in follow.text
+
+
+async def test_stranger_cannot_edit_alert(logged_in, session, alert):
+    """Чужой алерт не должен открываться на правку по прямой ссылке."""
+    await user_service.create_user(
+        session, email="stranger@example.com", password="stranger-password-1"
+    )
+    await session.commit()
+
+    page = await logged_in.get("/alerts")
+    await logged_in.post("/logout", data={"csrf_token": _csrf(page.text)})
+
+    login = await logged_in.get("/login")
+    entered = await logged_in.post(
+        "/login",
+        data={
+            "email": "stranger@example.com",
+            "password": "stranger-password-1",
+            "csrf_token": _csrf(login.text),
+        },
+    )
+    assert entered.status_code == 303
+
+    response = await logged_in.get(f'/alerts/{alert["alert_id"]}/edit')
+    assert response.status_code == 303
+    assert response.headers["location"] == "/alerts"
+
+
+# --- Настройки уведомлений ---
+
+
+async def test_notification_settings_page(logged_in):
+    page = await logged_in.get("/settings/notifications")
+
+    assert page.status_code == 200
+    assert "Сработавшие алерты" in page.text
+    # Ничего не настраивали — значит всё включено.
+    assert page.text.count("checked") == len(notification_service.EVENT_KINDS) * len(
+        notification_service.CHANNELS
+    )
+
+
+async def test_notification_settings_saved(logged_in, session):
+    page = await logged_in.get("/settings/notifications")
+    response = await logged_in.post(
+        "/settings/notifications",
+        data={
+            "alert:web": "true",
+            "signal:telegram": "true",
+            "csrf_token": _csrf(page.text),
+        },
+    )
+
+    assert response.status_code == 303
+
+    user = await session.scalar(select(User).where(User.email == "owner@example.com"))
+    matrix = await notification_service.settings_matrix(session, user)
+    assert matrix[("alert", "web")] is True
+    assert matrix[("alert", "telegram")] is False
+    assert matrix[("signal", "telegram")] is True
+    assert matrix[("signal", "web")] is False

@@ -1,0 +1,69 @@
+{% extends "app/base.html" %}
+{% block title %}Настройки уведомлений — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<div class="page-head">
+  <h1>Настройки уведомлений</h1>
+  <a href="/notifications" class="dim">← Лента</a>
+</div>
+
+{% if not telegram_linked %}
+  <div class="flash flash-warn">
+    Telegram не привязан, поэтому этот канал никуда не отправляет.
+    Привязать можно в разделе <a href="/settings/security">«Безопасность»</a>.
+  </div>
+{% endif %}
+
+<section class="card" style="max-width:640px">
+  <p class="muted">
+    Выключенный канал не откладывает уведомление, а отменяет его: событие
+    в него не уйдёт вовсе. Если выключить оба, событие не запишется
+    никуда — история срабатываний алерта при этом сохраняется.
+  </p>
+
+  <form method="post" action="/settings/notifications">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Событие</th>
+            {% for channel in channels %}
+              <th class="right">{{ channel_titles[channel] }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for event in events %}
+          <tr>
+            <td>
+              <strong>{{ event_titles[event] }}</strong>
+              <div class="dim">{{ event_hints[event] }}</div>
+            </td>
+            {% for channel in channels %}
+              <td class="right">
+                <input type="checkbox" name="{{ event }}:{{ channel }}" value="true"
+                       {{ 'checked' if matrix[(event, channel)] }}
+                       aria-label="{{ event_titles[event] }} — {{ channel_titles[channel] }}">
+              </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <button type="submit" class="btn btn-primary" style="margin-top:16px">Сохранить</button>
+  </form>
+</section>
+
+<section class="card" style="margin-top:16px; max-width:640px">
+  <h2>Отдельные алерты</h2>
+  <p class="muted">
+    У каждого алерта есть свои галочки каналов. Эти настройки — общий
+    предел: канал, выключенный здесь, отдельный алерт включить не может.
+  </p>
+  <a href="/alerts" class="btn btn-ghost">К списку алертов</a>
+</section>
+{% endblock %}

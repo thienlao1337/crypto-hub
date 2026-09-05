@@ -323,3 +323,128 @@ async def test_cooldown_has_lower_bound(session, setup):
         cooldown_seconds=1,
     )
     assert alert.cooldown_seconds >= 60
+
+
+# --- Правка алерта ---
+
+
+async def test_update_changes_condition(session, setup):
+    alert = await alert_service.create_alert(
+        session, setup["user"],
+        market_id=setup["market"].id,
+        type_code="price_above",
+        params={"level": "79000"},
+    )
+    await session.commit()
+
+    await alert_service.update_alert(
+        session, alert,
+        market_id=setup["market"].id,
+        type_code="price_below",
+        params={"level": "70000"},
+        cooldown_seconds=1800,
+    )
+    await session.commit()
+
+    reloaded = await alert_service.get_alert(session, setup["user"], alert.id)
+    assert reloaded.params == {"level": "70000"}
+    assert reloaded.cooldown_seconds == 1800
+
+    type_row = await session.get(AlertType, reloaded.alert_type_id)
+    assert type_row.code == "price_below"
+
+
+async def test_update_clears_cooldown_when_condition_changes(session, setup):
+    """Новое условие не должно молчать из-за паузы, назначенной старому."""
+    await alert_service.create_alert(
+        session, setup["user"],
+        market_id=setup["market"].id,
+        type_code="price_above",
+        params={"level": "79000"},
+    )
+    await session.commit()
+
+    fired = await alert_service.evaluate_all(session)
+    await session.commit()
+    assert len(fired) == 1
+
+    alert = (await alert_service.list_alerts(session, setup["user"]))[0][0]
+    assert alert.last_triggered_at is not None
+
+    await alert_service.update_alert(
+        session, alert,
+        market_id=setup["market"].id,
+        type_code="price_above",
+        params={"level": "75000"},
+    )
+    await session.commit()
+
+    assert alert.last_triggered_at is None
+    assert alert.trigger_count == 1, "история срабатываний не переписывается"
+
+    assert len(await alert_service.evaluate_all(session)) == 1
+
+
+async def test_update_keeps_cooldown_when_only_channels_change(session, setup):
+    """Смена каналов доставки — не смена условия, пауза остаётся."""
+    await alert_service.create_alert(
+        session, setup["user"],
+        market_id=setup["market"].id,
+        type_code="price_above",
+        params={"level": "79000"},
+    )
+    await session.commit()
+
+    await alert_service.evaluate_all(session)
+    await session.commit()
+
+    alert = (await alert_service.list_alerts(session, setup["user"]))[0][0]
+    await alert_service.update_alert(
+        session, alert,
+        market_id=setup["market"].id,
+        type_code="price_above",
+        params={"level": "79000"},
+        notify_telegram=False,
+    )
+    await session.commit()
+
+    assert alert.last_triggered_at is not None
+    assert alert.notify_telegram is False
+    assert await alert_service.evaluate_all(session) == []
+
+
+async def test_update_rejects_bad_params(session, setup):
+    alert = await alert_service.create_alert(
+        session, setup["user"],
+        market_id=setup["market"].id,
+        type_code="price_above",
+        params={"level": "79000"},
+    )
+    await session.commit()
+
+    with pytest.raises(alert_service.AlertError):
+        await alert_service.update_alert(
+            session, alert,
+            market_id=setup["market"].id,
+            type_code="price_above",
+            params={"level": "-5"},
+        )
+
+
+async def test_recent_triggers_newest_first(session, setup):
+    await alert_service.create_alert(
+        session, setup["user"],
+        market_id=setup["market"].id,
+        type_code="price_above",
+        params={"level": "79000"},
+        cooldown_seconds=60,
+    )
+    await session.commit()
+    await alert_service.evaluate_all(session)
+    await session.commit()
+
+    alert = (await alert_service.list_alerts(session, setup["user"]))[0][0]
+    triggers = await alert_service.recent_triggers(session, alert)
+
+    assert len(triggers) == 1
+    assert "80000" in triggers[0].message

@@ -37,7 +37,12 @@ from app.models import (
 )
 from app.models.signal import DIRECTION_BUY, DIRECTION_SELL
 from app.models.trading import MODE_LIVE, MODE_PAPER, MODE_TESTNET
-from app.services import audit_service, market_service, portfolio_service
+from app.services import (
+    audit_service,
+    market_service,
+    notification_service,
+    portfolio_service,
+)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -272,6 +277,16 @@ async def register_result(
         state.halted_at = datetime.now(timezone.utc)
         strategy.is_active = False
         await journal(session, strategy, EVENT_HALTED, state.halted_reason)
+        # Бот остановил себя сам — молча этого делать нельзя: человек
+        # должен узнать об этом не из журнала при следующем заходе.
+        await notification_service.dispatch(
+            session,
+            user_id=strategy.user_id,
+            kind=notification_service.KIND_SYSTEM,
+            title=f"Стратегия «{strategy.name}» остановлена",
+            body=state.halted_reason,
+            payload={"strategy_id": strategy.id},
+        )
 
     await session.flush()
     return state

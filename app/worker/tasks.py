@@ -33,7 +33,7 @@ from app.models import (
     User,
     WatchlistItem,
 )
-from app.models.exchange import KEY_STATUS_INVALID
+from app.models.exchange import KEY_STATUS_ERROR, KEY_STATUS_INVALID
 from app.services import exchange_keys_service as keys_service
 from app.services import (
     alert_service,
@@ -221,9 +221,29 @@ async def _remember_error(account_id: int, exc: Exception) -> None:
     try:
         async with session_scope() as session:
             account = await session.get(ExchangeAccount, account_id)
-            if account is not None:
-                await keys_service.mark_sync_error(session, account, str(exc))
-                await session.commit()
+            if account is None:
+                return
+
+            was_working = account.status != KEY_STATUS_ERROR
+            await keys_service.mark_sync_error(session, account, str(exc))
+
+            # Уведомляем только на переходе в сбой. Иначе каждый цикл
+            # синхронизации присылал бы одно и то же, пока ключ не
+            # починят, — и лента превратилась бы в шум.
+            if was_working:
+                await notification_service.dispatch(
+                    session,
+                    user_id=account.user_id,
+                    kind=notification_service.KIND_SYSTEM,
+                    title="Биржа перестала отвечать",
+                    body=(
+                        f"Подключение «{account.label}» не синхронизируется: "
+                        f"{account.last_error}"
+                    ),
+                    payload={"exchange_account_id": account.id},
+                )
+
+            await session.commit()
     except Exception:
         logger.exception("Не удалось записать ошибку синхронизации подключения %s", account_id)
 
@@ -331,7 +351,7 @@ async def _notify_signal(session, rule: SignalRule, signal, symbol: str) -> None
 
     word = "покупка" if signal.direction == "buy" else "продажа"
     for user_id in recipients:
-        await notification_service.push(
+        await notification_service.dispatch(
             session,
             user_id=user_id,
             kind=notification_service.KIND_SIGNAL,

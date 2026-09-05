@@ -1,4 +1,4 @@
-"""Настройки аккаунта: пароль и двухфакторная аутентификация."""
+"""Настройки аккаунта: пароль, двухфакторная аутентификация, уведомления."""
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.models import User
-from app.services import security, user_service
+from app.services import notification_service, security, user_service
 from app.web import auth, flash, qr
 from app.web.templates_env import templates
 
@@ -31,6 +31,60 @@ async def security_page(
             "telegram_code": request.session.pop("telegram_code", None),
         },
     )
+
+
+@router.get("/notifications", response_class=HTMLResponse)
+async def notification_settings_page(
+    request: Request,
+    user: User = Depends(auth.require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    return templates.TemplateResponse(
+        request,
+        "app/notification_settings.html",
+        {
+            "current_user": user,
+            "csrf_token": auth.issue_csrf_token(request),
+            "matrix": await notification_service.settings_matrix(session, user),
+            "events": notification_service.EVENT_KINDS,
+            "channels": notification_service.CHANNELS,
+            "event_titles": notification_service.EVENT_TITLES,
+            "event_hints": notification_service.EVENT_HINTS,
+            "channel_titles": notification_service.CHANNEL_TITLES,
+            "telegram_linked": user.telegram_id is not None,
+        },
+    )
+
+
+@router.post("/notifications")
+async def save_notification_settings(
+    request: Request,
+    csrf_token: str = Form(""),
+    user: User = Depends(auth.require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Сохранить матрицу «событие × канал».
+
+    Форма читается целиком, а не по одному изменённому флажку: снятая
+    галочка ничего не отправляет, и разобрать её можно только по
+    отсутствию в полном наборе.
+    """
+    auth.verify_csrf(request, csrf_token)
+    form = await request.form()
+
+    for event in notification_service.EVENT_KINDS:
+        for channel in notification_service.CHANNELS:
+            await notification_service.set_enabled(
+                session,
+                user.id,
+                event,
+                channel,
+                f"{event}:{channel}" in form,
+            )
+
+    await session.commit()
+    flash.success(request, "Настройки уведомлений сохранены.")
+    return RedirectResponse("/settings/notifications", status_code=303)
 
 
 @router.post("/password")

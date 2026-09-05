@@ -210,16 +210,22 @@ async def fire(session: AsyncSession, alert: Alert, hit: AlertHit) -> AlertTrigg
     alert.last_triggered_at = now
     alert.trigger_count += 1
 
-    if alert.notify_web:
-        await notification_service.push(
-            session,
-            user_id=alert.user_id,
-            kind=notification_service.KIND_ALERT,
-            title="Сработал алерт",
-            body=hit.message,
-            payload={"alert_id": alert.id},
-        )
-        trigger.delivered_web = True
+    # id срабатывания нужен уведомлению, чтобы отправка потом отметила
+    # доставку именно у этой записи.
+    await session.flush()
+
+    notification = await notification_service.dispatch(
+        session,
+        user_id=alert.user_id,
+        kind=notification_service.KIND_ALERT,
+        title="Сработал алерт",
+        body=hit.message,
+        payload={"alert_id": alert.id, "trigger_id": trigger.id},
+        web=alert.notify_web,
+        telegram=alert.notify_telegram,
+    )
+    if notification is not None:
+        trigger.delivered_web = notification.show_web
 
     await session.flush()
     return trigger
@@ -272,6 +278,59 @@ async def create_alert(
     session.add(alert)
     await session.flush()
     return alert
+
+
+async def update_alert(
+    session: AsyncSession,
+    alert: Alert,
+    *,
+    market_id: int,
+    type_code: str,
+    params: dict,
+    cooldown_seconds: int = 3600,
+    notify_web: bool = True,
+    notify_telegram: bool = True,
+) -> Alert:
+    """Изменить существующий алерт.
+
+    Счётчик срабатываний остаётся: он считает жизнь алерта и сходится с
+    записями в истории. А вот пауза после последнего срабатывания при
+    смене условия снимается — иначе новое условие молчало бы до конца
+    паузы, назначенной старому.
+    """
+    alert_type = await _alert_type(session, type_code)
+    validate_params(type_code, params)
+
+    condition_changed = (
+        alert.alert_type_id != alert_type.id
+        or alert.market_id != market_id
+        or (alert.params or {}) != params
+    )
+
+    alert.alert_type_id = alert_type.id
+    alert.market_id = market_id
+    alert.params = params
+    alert.cooldown_seconds = max(60, cooldown_seconds)
+    alert.notify_web = notify_web
+    alert.notify_telegram = notify_telegram
+
+    if condition_changed:
+        alert.last_triggered_at = None
+
+    await session.flush()
+    return alert
+
+
+async def recent_triggers(
+    session: AsyncSession, alert: Alert, *, limit: int = 20
+) -> list[AlertTrigger]:
+    result = await session.execute(
+        select(AlertTrigger)
+        .where(AlertTrigger.alert_id == alert.id)
+        .order_by(AlertTrigger.triggered_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars())
 
 
 def validate_params(type_code: str, params: dict) -> None:

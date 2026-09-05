@@ -120,6 +120,10 @@ class Notification(Base):
     payload: Mapped[dict | None] = mapped_column(JsonB, nullable=True)
 
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Показывать ли запись в ленте панели. Уведомление, которому оставлен
+    # только Telegram, всё равно проходит через эту таблицу — она же
+    # очередь отправки, — но в ленте не появляется.
+    show_web: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Отправка в Telegram отделена от записи: уведомление не теряется,
     # если бот в этот момент недоступен, и уходит следующим проходом.
     delivered_telegram: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

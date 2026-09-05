@@ -3,6 +3,9 @@
 Отдельно от записи события: сработавший алерт попадает в ленту сразу, а
 в чат уходит следующим проходом. Если бот недоступен или пользователь
 заблокировал его, событие не теряется и не блокирует движок алертов.
+
+Кому что разрешено, здесь не решается: уведомление с выключенным
+Telegram помечается доставленным ещё при записи и в очередь не попадает.
 """
 
 import logging
@@ -15,8 +18,7 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.db import session_scope
-from app.models import Notification, User
-from app.services import notification_service
+from app.models import AlertTrigger, Notification, User
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -36,7 +38,7 @@ async def deliver_pending() -> int:
         rows = (
             await session.execute(
                 select(Notification.id, Notification.title, Notification.body,
-                       Notification.kind, User.telegram_id, User.id)
+                       Notification.payload, User.telegram_id)
                 .join(User, User.id == Notification.user_id)
                 .where(
                     Notification.delivered_telegram.is_(False),
@@ -58,19 +60,11 @@ async def deliver_pending() -> int:
     sent = 0
 
     try:
-        for notification_id, title, body, kind, chat_id, user_id in rows:
-            async with session_scope() as session:
-                enabled = await notification_service.is_enabled(
-                    session, user_id, kind, notification_service.CHANNEL_TELEGRAM
-                )
-
-            if not enabled:
-                await _mark(notification_id, delivered=True, error=None)
-                continue
-
+        for notification_id, title, body, payload, chat_id in rows:
             try:
                 await bot.send_message(chat_id, f"<b>{title}</b>\n{body}")
                 await _mark(notification_id, delivered=True, error=None)
+                await _mark_trigger(payload)
                 sent += 1
             except TelegramForbiddenError:
                 # Пользователь заблокировал бота. Повторять бессмысленно:
@@ -93,6 +87,25 @@ async def deliver_pending() -> int:
     if sent:
         logger.info("Отправлено в Telegram: %s", sent)
     return sent
+
+
+async def _mark_trigger(payload: dict | None) -> None:
+    """Отметить доставку у срабатывания алерта, если оно известно.
+
+    Уведомление и срабатывание — разные записи: первая живёт в очереди
+    отправки, вторая в истории алерта. Без этой отметки история молчала
+    бы о том, ушло ли сообщение.
+    """
+    trigger_id = (payload or {}).get("trigger_id")
+    if not trigger_id:
+        return
+
+    async with session_scope() as session:
+        trigger = await session.get(AlertTrigger, trigger_id)
+        if trigger is None:
+            return
+        trigger.delivered_telegram = True
+        await session.commit()
 
 
 async def _mark(notification_id: int, *, delivered: bool, error: str | None) -> None:
