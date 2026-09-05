@@ -14,7 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
-from app.models.types import Amount, BigPk, Pct, Price, Usd
+from app.models.types import Amount, BigPk, BigUsd, Pct, Price, Usd
 
 MARKET_TYPE_SPOT = "spot"
 MARKET_TYPE_SWAP = "swap"
@@ -156,8 +156,8 @@ class GlobalStats(Base):
         DateTime(timezone=True), server_default=func.now(), index=True
     )
 
-    total_market_cap_usd: Mapped[Decimal | None] = mapped_column(Usd, nullable=True)
-    total_volume_24h_usd: Mapped[Decimal | None] = mapped_column(Usd, nullable=True)
+    total_market_cap_usd: Mapped[Decimal | None] = mapped_column(BigUsd, nullable=True)
+    total_volume_24h_usd: Mapped[Decimal | None] = mapped_column(BigUsd, nullable=True)
     market_cap_change_24h_pct: Mapped[Decimal | None] = mapped_column(Pct, nullable=True)
     btc_dominance: Mapped[Decimal | None] = mapped_column(Pct, nullable=True)
     eth_dominance: Mapped[Decimal | None] = mapped_column(Pct, nullable=True)

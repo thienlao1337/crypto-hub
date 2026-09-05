@@ -1,33 +1,144 @@
 {% extends "app/base.html" %}
 {% block title %}Дашборд — Crypto Hub{% endblock %}
 
+{% macro change(value) %}
+  {% if value is none %}
+    <span class="dim">—</span>
+  {% else %}
+    <span class="num {{ 'up' if value >= 0 else 'down' }}">{{ value|pct(2, signed=True) }}</span>
+  {% endif %}
+{% endmacro %}
+
+{% macro movers_table(rows) %}
+  {% if not rows %}
+    <p class="dim">Нет данных — котировки ещё загружаются.</p>
+  {% else %}
+    <table class="table compact">
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td><a href="/market/{{ row.exchange }}/{{ row.slug }}">{{ row.symbol }}</a></td>
+          <td class="num right">{{ row.last|amount }}</td>
+          <td class="num right">{{ change(row.change_24h_pct) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endmacro %}
+
 {% block app_content %}
 <h1>Дашборд</h1>
-<p class="muted">
-  Вход выполнен. Виджеты появятся по мере готовности разделов.
-</p>
 
 <div class="card-grid">
   <section class="card">
     <h2>Портфель</h2>
-    <p class="dim">Подключите ключи бирж, чтобы увидеть балансы.</p>
-    <div class="num placeholder-value">—</div>
+    {% if summary.has_accounts %}
+      <div class="num stat-value">{{ summary.total_usd|usd }}</div>
+      <div class="stat-row">
+        <span class="dim">24ч</span> {{ change(summary.change_24h_pct) }}
+        <span class="dim">7д</span> {{ change(summary.change_7d_pct) }}
+      </div>
+      <a href="/portfolio" class="dim">Подробнее →</a>
+    {% else %}
+      <p class="dim">Биржи не подключены.</p>
+      <a class="btn btn-primary" href="/settings/keys">Подключить биржу</a>
+    {% endif %}
   </section>
 
   <section class="card">
-    <h2>Безопасность</h2>
-    <p class="dim">
-      Двухфакторная аутентификация:
-      {% if current_user.totp_enabled %}включена{% else %}не включена{% endif %}.
-    </p>
+    <h2>Индекс страха и жадности</h2>
+    {% if stats and stats.fng_value is not none %}
+      <div class="fng">
+        <div class="fng-value num">{{ stats.fng_value }}</div>
+        <div>
+          <div>{{ stats.fng_label }}</div>
+          <div class="dim">0 — страх, 100 — жадность</div>
+        </div>
+      </div>
+      <div class="fng-bar" style="--fng: {{ stats.fng_value }}%"></div>
+    {% else %}
+      <p class="dim">Данные ещё не загружены.</p>
+    {% endif %}
   </section>
 
-  {% if current_user.is_owner %}
   <section class="card">
-    <h2>Приглашения</h2>
-    <p class="dim">Регистрация закрытая — коды выдаёте вы.</p>
+    <h2>Рынок целиком</h2>
+    {% if stats and stats.total_market_cap_usd %}
+      <div class="num stat-value" title="{{ stats.total_market_cap_usd|usd(0) }}">{{ stats.total_market_cap_usd|usd_short }}</div>
+      <div class="stat-row">
+        <span class="dim">за 24ч</span> {{ change(stats.market_cap_change_24h_pct) }}
+      </div>
+      <div class="stat-row">
+        <span class="dim">доминация BTC</span>
+        <span class="num">{{ stats.btc_dominance|pct(1) }}</span>
+      </div>
+      <div class="stat-row">
+        <span class="dim">доминация ETH</span>
+        <span class="num">{{ stats.eth_dominance|pct(1) }}</span>
+      </div>
+    {% else %}
+      <p class="dim">Данные ещё не загружены.</p>
+    {% endif %}
   </section>
-  {% endif %}
+</div>
+
+<div class="card-grid">
+  <section class="card">
+    <h2>Топ роста за 24ч</h2>
+    {{ movers_table(gainers) }}
+  </section>
+
+  <section class="card">
+    <h2>Топ падения за 24ч</h2>
+    {{ movers_table(losers) }}
+  </section>
+</div>
+
+<div class="card-grid">
+  <section class="card">
+    <h2>Последние сигналы</h2>
+    {% if not signals %}
+      <p class="dim">
+        Сигналов нет. Добавьте пары в список отслеживания на странице рынка.
+      </p>
+    {% else %}
+      <div class="signal-list">
+        {% for signal, symbol, timeframe_code in signals %}
+        <article class="signal {{ signal.direction }}">
+          <div class="signal-head">
+            <span class="signal-badge {{ 'up' if signal.direction == 'buy' else 'down' }}">
+              {{ 'покупка' if signal.direction == 'buy' else 'продажа' }}
+            </span>
+            <strong>{{ symbol }}</strong>
+            <span class="dim">{{ timeframe_code }}</span>
+            <span class="dim signal-time">{{ signal.created_at.strftime('%d.%m %H:%M') }}</span>
+          </div>
+          <p class="signal-reason">{{ signal.reason }}</p>
+        </article>
+        {% endfor %}
+      </div>
+      <a href="/signals" class="dim">Все сигналы →</a>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>События</h2>
+    {% if not events %}
+      <p class="dim">Здесь появятся сработавшие алерты.</p>
+    {% else %}
+      {% for event in events %}
+        <div class="stat-row" style="align-items: flex-start">
+          <div>
+            <div>{{ event.title }}</div>
+            <div class="dim">{{ event.body }}</div>
+          </div>
+          <span class="dim">{{ event.created_at.strftime('%d.%m %H:%M') }}</span>
+        </div>
+      {% endfor %}
+      <a href="/notifications" class="dim">Все уведомления →</a>
+    {% endif %}
+  </section>
 </div>
 
 <div class="disclaimer">

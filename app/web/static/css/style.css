@@ -899,3 +899,59 @@ input::placeholder {
   line-height: 16px;
   text-align: center;
 }
+
+/* --- Индекс страха и жадности --- */
+
+.fng {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.fng-value {
+  font-size: 2.2rem;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+/* Шкала от страха к жадности. Красный и зелёный здесь не про цену, но
+   значение то же по смыслу — настроение рынка, — и другого прочтения
+   у этой шкалы нет. */
+.fng-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--down), var(--warn), var(--up));
+}
+
+.fng-bar::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: var(--fng, 50%);
+  width: 3px;
+  height: 12px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: var(--text);
+}
+
+/* --- Формы в две колонки и блок результата --- */
+
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.result {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.result .stat-value {
+  margin-top: 0;
+}

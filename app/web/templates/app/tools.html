@@ -1,0 +1,141 @@
+{% extends "app/base.html" %}
+{% block title %}Инструменты — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<h1>Инструменты</h1>
+
+<div class="card-grid" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr))">
+
+  <section class="card">
+    <h2>Конвертер</h2>
+    <p class="dim">
+      Пересчёт идёт через цену в долларах по текущим котировкам
+      подключённых бирж.
+    </p>
+
+    {% if convert_error %}
+      <div class="flash flash-error" role="alert">{{ convert_error }}</div>
+    {% endif %}
+
+    <form method="post" action="/tools/convert">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <div class="field">
+        <label for="amount">Количество</label>
+        <input type="text" id="amount" name="amount" inputmode="decimal"
+               value="{{ convert_input.amount if convert_input else '1' }}" required>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="source">Из</label>
+          <input type="text" id="source" name="source" maxlength="16"
+                 value="{{ convert_input.source if convert_input else 'BTC' }}" required>
+        </div>
+        <div class="field">
+          <label for="target">В</label>
+          <input type="text" id="target" name="target" maxlength="16"
+                 value="{{ convert_input.target if convert_input else 'USDT' }}" required>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Пересчитать</button>
+    </form>
+
+    {% if conversion %}
+      <div class="result">
+        <div class="num stat-value">
+          {{ conversion.result|amount }} {{ conversion.target }}
+        </div>
+        <div class="dim">
+          {{ conversion.amount|amount }} {{ conversion.source }} ·
+          курс {{ conversion.source_price_usd|usd }} / {{ conversion.target_price_usd|usd }}
+        </div>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Калькулятор сделки</h2>
+    <p class="dim">
+      Комиссия считается дважды — на входе и на выходе. Учитывать её один
+      раз значит завышать прибыль.
+    </p>
+
+    {% if trade_error %}
+      <div class="flash flash-error" role="alert">{{ trade_error }}</div>
+    {% endif %}
+
+    <form method="post" action="/tools/trade">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <div class="field">
+        <label for="side">Направление</label>
+        <select id="side" name="side">
+          <option value="buy" {{ 'selected' if trade_input and trade_input.side == 'buy' }}>
+            покупка (лонг)
+          </option>
+          <option value="sell" {{ 'selected' if trade_input and trade_input.side == 'sell' }}>
+            продажа (шорт)
+          </option>
+        </select>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="trade_amount">Количество</label>
+          <input type="text" id="trade_amount" name="amount" inputmode="decimal"
+                 value="{{ trade_input.amount if trade_input else '0.1' }}" required>
+        </div>
+        <div class="field">
+          <label for="fee_pct">Комиссия, %</label>
+          <input type="text" id="fee_pct" name="fee_pct" inputmode="decimal"
+                 value="{{ trade_input.fee_pct if trade_input else '0.1' }}" required>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="entry_price">Цена входа</label>
+          <input type="text" id="entry_price" name="entry_price" inputmode="decimal"
+                 value="{{ trade_input.entry_price if trade_input else '' }}" required>
+        </div>
+        <div class="field">
+          <label for="exit_price">Цена выхода</label>
+          <input type="text" id="exit_price" name="exit_price" inputmode="decimal"
+                 value="{{ trade_input.exit_price if trade_input else '' }}" required>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Посчитать</button>
+    </form>
+
+    {% if trade %}
+      <div class="result">
+        <div class="num stat-value {{ 'up' if trade.net_pnl >= 0 else 'down' }}">
+          {{ trade.net_pnl|usd }}
+        </div>
+        <div class="num {{ 'up' if trade.net_pnl >= 0 else 'down' }}">
+          {{ trade.net_pnl_pct|pct(2, signed=True) }} от вложенного
+        </div>
+
+        <div class="stat-row"><span class="dim">объём входа</span>
+          <span class="num">{{ trade.entry_cost|usd }}</span></div>
+        <div class="stat-row"><span class="dim">объём выхода</span>
+          <span class="num">{{ trade.exit_proceeds|usd }}</span></div>
+        <div class="stat-row"><span class="dim">результат до комиссий</span>
+          <span class="num">{{ trade.gross_pnl|usd }}</span></div>
+        <div class="stat-row"><span class="dim">комиссии всего</span>
+          <span class="num">{{ trade.total_fees|usd }}</span></div>
+        <div class="stat-row"><span class="dim">выход в ноль при цене</span>
+          <span class="num">{{ trade.breakeven_price|amount(4) }}</span></div>
+      </div>
+    {% endif %}
+  </section>
+</div>
+
+<div class="disclaimer">
+  Расчёт справочный: реальные комиссии зависят от тарифа биржи и типа
+  ордера, а проскальзывание здесь не учитывается.
+</div>
+{% endblock %}

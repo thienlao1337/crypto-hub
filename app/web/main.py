@@ -24,6 +24,7 @@ from app.web.routers import notifications as notifications_router
 from app.web.routers import portfolio as portfolio_router
 from app.web.routers import settings as settings_router
 from app.web.routers import signals as signals_router
+from app.web.routers import tools as tools_router
 from app.web.templates_env import STATIC_DIR, templates
 
 # Uvicorn настраивает только свои логгеры, поэтому предупреждения наших
@@ -85,6 +86,7 @@ app.include_router(market_router.router)
 app.include_router(signals_router.router)
 app.include_router(alerts_router.router)
 app.include_router(notifications_router.router)
+app.include_router(tools_router.router)
 app.include_router(keys_router.router)
 app.include_router(settings_router.router)
 app.include_router(invites_router.router)

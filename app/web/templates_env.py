@@ -59,6 +59,30 @@ def format_usd(value, decimals: int = 2) -> str:
     return f"${text}"
 
 
+def format_usd_short(value) -> str:
+    """Крупная сумма коротко: $2.71 трлн вместо тринадцати цифр подряд.
+
+    Капитализация рынка в полном виде нечитаема и ломает вёрстку карточки.
+    """
+    if value is None:
+        return DASH
+    try:
+        number = Decimal(value)
+    except (InvalidOperation, TypeError, ValueError):
+        return DASH
+
+    for limit, suffix in (
+        (Decimal("1e12"), "трлн"),
+        (Decimal("1e9"), "млрд"),
+        (Decimal("1e6"), "млн"),
+    ):
+        if abs(number) >= limit:
+            scaled = (number / limit).quantize(Decimal("0.01"))
+            return f"${scaled} {suffix}"
+
+    return format_usd(number)
+
+
 def format_pct(value, decimals: int = 2, *, signed: bool = False) -> str:
     if value is None:
         return DASH
@@ -115,4 +139,5 @@ templates = Jinja2Templates(
 )
 templates.env.filters["amount"] = format_amount
 templates.env.filters["usd"] = format_usd
+templates.env.filters["usd_short"] = format_usd_short
 templates.env.filters["pct"] = format_pct

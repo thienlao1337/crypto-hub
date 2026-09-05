@@ -84,6 +84,12 @@ def build_scheduler() -> AsyncIOScheduler:
         id="evaluate_alerts",
     )
     scheduler.add_job(
+        tasks.refresh_global_stats,
+        "interval",
+        seconds=settings.global_stats_interval,
+        id="refresh_global_stats",
+    )
+    scheduler.add_job(
         delivery.deliver_pending,
         "interval",
         seconds=15,
@@ -106,6 +112,7 @@ async def main() -> None:
     logger.info("Первичная загрузка торговых пар")
     await tasks.refresh_markets()
     await tasks.refresh_tickers()
+    await tasks.refresh_global_stats()
 
     scheduler.start()
     logger.info(

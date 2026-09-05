@@ -32,6 +32,7 @@ from app.models.exchange import KEY_STATUS_INVALID
 from app.services import exchange_keys_service as keys_service
 from app.services import (
     alert_service,
+    dashboard_service,
     notification_service,
     candle_service,
     market_service,
@@ -332,6 +333,22 @@ async def _notify_signal(session, rule: SignalRule, signal, symbol: str) -> None
             body=signal.reason,
             payload={"signal_id": signal.id, "symbol": symbol},
         )
+
+
+async def refresh_global_stats() -> None:
+    """Снять общерыночные показатели для дашборда."""
+    try:
+        async with session_scope() as session:
+            snapshot = await dashboard_service.refresh_global_stats(session)
+            await session.commit()
+        if snapshot is not None:
+            logger.info(
+                "Показатели рынка обновлены: капитализация %s, индекс %s",
+                snapshot.total_market_cap_usd,
+                snapshot.fng_value,
+            )
+    except Exception:
+        logger.exception("Не удалось обновить общерыночные показатели")
 
 
 async def _candle_targets() -> list[tuple[int, int]]:
