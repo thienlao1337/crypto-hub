@@ -7,12 +7,12 @@
 from sqlalchemy import JSON, BigInteger, Integer, Numeric
 from sqlalchemy.dialects.postgresql import JSONB
 
-# JSONB на PostgreSQL (индексируемый), обычный JSON на SQLite — на нём
-# гоняются юнит-тесты сервисного слоя.
+# JSONB на PostgreSQL (индексируемый), обычный JSON на прочих диалектах.
 JsonB = JSON().with_variant(JSONB, "postgresql")
 
-# SQLite делает автоинкремент только для колонки типа INTEGER, поэтому
-# большие первичные ключи объявляем с вариантом для тестового диалекта.
+# SQLite делает автоинкремент только для колонки типа INTEGER. Тесты
+# сейчас идут на PostgreSQL, но вариант оставлен: он ничего не стоит и
+# снимает грабли, если базу когда-нибудь поднимут на SQLite.
 BigPk = BigInteger().with_variant(Integer, "sqlite")
 
 # Деньги и количества — только Numeric. float здесь недопустим: накопленная

@@ -7,6 +7,32 @@ on:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+
+    # Тесты идут на настоящем PostgreSQL: на SQLite тип Numeric хранится
+    # как float, и суммы теряют точность — для продукта, который считает
+    # деньги, такой прогон ничего не доказывает.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: cryptohub
+          POSTGRES_PASSWORD: cryptohub
+          POSTGRES_DB: cryptohub
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cryptohub"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      POSTGRES_USER: cryptohub
+      POSTGRES_PASSWORD: cryptohub
+      POSTGRES_DB: cryptohub
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+
     steps:
       - uses: actions/checkout@v4
 

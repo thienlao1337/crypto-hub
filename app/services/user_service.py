@@ -186,17 +186,33 @@ async def authenticate(
     return user
 
 
-async def failed_attempts_since(session: AsyncSession, email: str, since: datetime) -> int:
-    result = await session.execute(
-        select(func.count())
-        .select_from(LoginEvent)
-        .where(
-            LoginEvent.email == normalize_email(email),
-            LoginEvent.is_success.is_(False),
-            LoginEvent.created_at >= since,
+async def recent_failed_attempts(session: AsyncSession, email: str) -> int:
+    """Неудачные попытки в окне и после последнего удачного входа.
+
+    Отсечка по идентификатору события, а не по времени: в PostgreSQL
+    now() возвращает время начала транзакции, поэтому события одного
+    запроса получают одинаковую метку и сравнение по времени становится
+    неоднозначным. Идентификаторы монотонны и такой двусмысленности не
+    имеют.
+    """
+    email = normalize_email(email)
+
+    last_success_id = await session.scalar(
+        select(func.max(LoginEvent.id)).where(
+            LoginEvent.email == email,
+            LoginEvent.is_success.is_(True),
         )
     )
-    return int(result.scalar_one())
+
+    query = select(func.count()).select_from(LoginEvent).where(
+        LoginEvent.email == email,
+        LoginEvent.is_success.is_(False),
+        LoginEvent.created_at >= datetime.now(timezone.utc) - LOGIN_ATTEMPT_WINDOW,
+    )
+    if last_success_id is not None:
+        query = query.where(LoginEvent.id > last_success_id)
+
+    return int(await session.scalar(query))
 
 
 async def check_login_throttle(session: AsyncSession, email: str) -> None:
@@ -207,19 +223,7 @@ async def check_login_throttle(session: AsyncSession, email: str) -> None:
     удачного входа — иначе давние опечатки копились бы и однажды
     заблокировали хозяина аккаунта на ровном месте.
     """
-    since = datetime.now(timezone.utc) - LOGIN_ATTEMPT_WINDOW
-
-    last_success = await session.execute(
-        select(func.max(LoginEvent.created_at)).where(
-            LoginEvent.email == normalize_email(email),
-            LoginEvent.is_success.is_(True),
-        )
-    )
-    last_success_at = last_success.scalar_one_or_none()
-    if last_success_at is not None:
-        since = max(since, _as_utc(last_success_at))
-
-    if await failed_attempts_since(session, email, since) >= MAX_FAILED_ATTEMPTS:
+    if await recent_failed_attempts(session, email) >= MAX_FAILED_ATTEMPTS:
         raise TooManyAttempts(
             "Слишком много неудачных попыток. Попробуйте через 15 минут."
         )

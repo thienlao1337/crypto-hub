@@ -57,6 +57,11 @@ services:
       - .env
     environment:
       POSTGRES_HOST: db
+    # Тесты идут на PostgreSQL (в отдельной базе с суффиксом _test), а не
+    # на SQLite: там Numeric хранится как float и деньги теряют точность.
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   postgres_data:
