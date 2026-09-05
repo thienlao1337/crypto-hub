@@ -1,15 +1,17 @@
 """Рынок: свечной график, индикаторы и сравнение бирж."""
 
+import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import get_session
+from app.db import get_session, session_scope
 from app.exchanges.ccxt_client import CcxtAdapter
+from app.exchanges.ws_hub import CHANNEL_ORDER_BOOK, CHANNEL_TRADES, hub
 from app.models import Exchange, Market, MarketTicker, User
 from app.models.market import MARKET_TYPE_SPOT
 from app.services import candle_service, market_service
@@ -166,6 +168,54 @@ async def market_page(
             "indicators_json": json.dumps(DEFAULT_INDICATORS),
         },
     )
+
+
+@router.websocket("/stream/{exchange_code}/{slug}")
+async def market_stream(websocket: WebSocket, exchange_code: str, slug: str):
+    """Стакан и лента сделок в реальном времени.
+
+    Соединение с биржей общее на всех зрителей — им заведует
+    мультиплексор, см. app/exchanges/ws_hub.py.
+    """
+    # Сессионная cookie доступна и в WebSocket: SessionMiddleware стоит
+    # выше по стеку. Анонимных сюда не пускаем.
+    if not websocket.session.get(auth.SESSION_USER_ID):
+        await websocket.close(code=4401)
+        return
+
+    symbol = slug_to_symbol(slug)
+
+    async with session_scope() as session:
+        market = await _find_market(session, exchange_code, symbol)
+    if market is None:
+        # Подписываться можно только на пары, которые у нас заведены,
+        # иначе адрес превращается в произвольный запрос к бирже.
+        await websocket.close(code=4404)
+        return
+
+    await websocket.accept()
+
+    async def pump(channel: str) -> None:
+        async for payload in hub.subscribe(exchange_code, symbol, channel):
+            await websocket.send_json(payload)
+
+    async def wait_for_disconnect() -> None:
+        while True:
+            await websocket.receive()
+
+    tasks = [
+        asyncio.create_task(pump(CHANNEL_ORDER_BOOK)),
+        asyncio.create_task(pump(CHANNEL_TRADES)),
+        asyncio.create_task(wait_for_disconnect()),
+    ]
+    try:
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def _find_market(session: AsyncSession, exchange_code: str, symbol: str) -> Market | None:

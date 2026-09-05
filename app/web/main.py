@@ -11,6 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import get_settings
 from app.db import get_engine, session_scope
+from app.exchanges.ws_hub import hub
 from app.services import user_service
 from app.web import auth
 from app.web.routers import auth as auth_router
@@ -22,6 +23,12 @@ from app.web.routers import portfolio as portfolio_router
 from app.web.routers import settings as settings_router
 from app.web.templates_env import STATIC_DIR, templates
 
+# Uvicorn настраивает только свои логгеры, поэтому предупреждения наших
+# модулей иначе никуда не попадают — и разбирать сбой приходится вслепую.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+)
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
@@ -51,6 +58,10 @@ async def lifespan(app: FastAPI):
         logger.exception("Не удалось создать владельца при старте")
 
     yield
+
+    # Подписки на биржи держит один общий мультиплексор — при остановке
+    # его надо погасить, иначе соединения зависают до таймаута.
+    await hub.close()
 
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)

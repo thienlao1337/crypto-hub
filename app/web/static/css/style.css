@@ -764,3 +764,39 @@ input::placeholder {
   font-size: 0.85rem;
   color: var(--text-muted);
 }
+
+/* --- Стакан и лента сделок --- */
+
+.orderbook td,
+.tape td {
+  padding: 2px 8px 2px 0;
+  font-size: 0.82rem;
+  position: relative;
+}
+
+/* Полоса за строкой показывает объём: глубину видно, не читая цифр. */
+.orderbook tr.up td:first-child::before,
+.orderbook tr.down td:first-child::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--depth, 0);
+  pointer-events: none;
+}
+
+.orderbook tr.up td:first-child::before {
+  background: var(--up-soft);
+}
+
+.orderbook tr.down td:first-child::before {
+  background: var(--down-soft);
+}
+
+.book-spread td {
+  padding: 6px 0;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}

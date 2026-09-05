@@ -74,6 +74,30 @@
   <p class="dim" id="chart-status">Загружаем свечи…</p>
 </section>
 
+<div class="card-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr))">
+  <section class="card">
+    <div class="page-head">
+      <h2>Стакан</h2>
+      <span class="dim" id="book-state">подключаемся…</span>
+    </div>
+    <table class="table compact orderbook">
+      <tbody id="asks"></tbody>
+      <tr class="book-spread"><td colspan="3" id="book-spread">—</td></tr>
+      <tbody id="bids"></tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <div class="page-head">
+      <h2>Лента сделок</h2>
+      <span class="dim" id="tape-state">подключаемся…</span>
+    </div>
+    <table class="table compact tape">
+      <tbody id="tape"></tbody>
+    </table>
+  </section>
+</div>
+
 <div class="disclaimer">
   Индикаторы — технический анализ на исторических данных. Это не
   финансовая рекомендация.
@@ -255,6 +279,122 @@
 
     applyTheme();
     load().then(resize);
+
+    // --- Стакан и лента сделок ---
+
+    var EXCHANGE = "{{ exchange_code }}";
+    var SLUG = "{{ slug }}";
+    var asksBody = document.getElementById('asks');
+    var bidsBody = document.getElementById('bids');
+    var tapeBody = document.getElementById('tape');
+    var bookState = document.getElementById('book-state');
+    var tapeState = document.getElementById('tape-state');
+    var spreadCell = document.getElementById('book-spread');
+
+    function fmt(value, digits) {
+      if (value === null || value === undefined) return '—';
+      return value.toLocaleString('ru-RU', {
+        minimumFractionDigits: digits, maximumFractionDigits: digits
+      });
+    }
+
+    function priceDigits(price) {
+      if (!price) return 2;
+      if (price >= 1000) return 2;
+      if (price >= 1) return 4;
+      return 8;
+    }
+
+    function renderBook(data) {
+      if (data.error) { bookState.textContent = data.error; return; }
+      bookState.textContent = 'в реальном времени';
+
+      var best = (data.asks[0] && data.asks[0][0]) || (data.bids[0] && data.bids[0][0]);
+      var digits = priceDigits(best);
+
+      // Глубина рисуется полосой за строкой: объём виден сразу, без чтения цифр.
+      var maxAmount = 0;
+      data.asks.concat(data.bids).forEach(function (row) {
+        if (row[1] > maxAmount) maxAmount = row[1];
+      });
+
+      function rows(list, side) {
+        return list.map(function (row) {
+          var share = maxAmount ? (row[1] / maxAmount * 100) : 0;
+          return '<tr class="' + side + '" style="--depth:' + share.toFixed(1) + '%">' +
+            '<td class="num">' + fmt(row[0], digits) + '</td>' +
+            '<td class="num right">' + fmt(row[1], 6) + '</td>' +
+            '</tr>';
+        }).join('');
+      }
+
+      // Продажи сверху вниз к спреду — привычный для терминалов порядок.
+      asksBody.innerHTML = rows(data.asks.slice().reverse(), 'down');
+      bidsBody.innerHTML = rows(data.bids, 'up');
+
+      var bestAsk = data.asks[0] && data.asks[0][0];
+      var bestBid = data.bids[0] && data.bids[0][0];
+      if (bestAsk && bestBid) {
+        // У ликвидных пар спред — сотые доли процента, и три знака
+        // округляли его в ноль. Показываем и абсолютную величину.
+        var spread = (bestAsk - bestBid) / bestBid * 100;
+        spreadCell.textContent = 'спред ' + fmt(bestAsk - bestBid, digits) +
+          ' (' + spread.toFixed(4) + '%)';
+      }
+    }
+
+    var tape = [];
+
+    function renderTape(data) {
+      if (data.error) { tapeState.textContent = data.error; return; }
+      tapeState.textContent = 'в реальном времени';
+
+      tape = data.trades.slice().reverse().concat(tape).slice(0, 25);
+      var digits = priceDigits(tape[0] && tape[0].price);
+
+      tapeBody.innerHTML = tape.map(function (trade) {
+        var time = new Date(trade.timestamp || Date.now());
+        return '<tr class="' + (trade.side === 'buy' ? 'up' : 'down') + '">' +
+          '<td class="num">' + fmt(trade.price, digits) + '</td>' +
+          '<td class="num right">' + fmt(trade.amount, 6) + '</td>' +
+          '<td class="num right dim">' + time.toLocaleTimeString('ru-RU') + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+
+    var socket = null;
+    var reconnectDelay = 1000;
+
+    function connect() {
+      var scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+      socket = new WebSocket(scheme + '://' + location.host +
+        '/market/stream/' + EXCHANGE + '/' + SLUG);
+
+      socket.onmessage = function (event) {
+        var data = JSON.parse(event.data);
+        if (data.type === 'orderbook') renderBook(data);
+        else if (data.type === 'trades') renderTape(data);
+      };
+
+      socket.onopen = function () { reconnectDelay = 1000; };
+
+      socket.onclose = function (event) {
+        bookState.textContent = tapeState.textContent = 'соединение потеряно';
+        if (event.code === 4401) {
+          bookState.textContent = tapeState.textContent = 'нужен повторный вход';
+          return;
+        }
+        // Отступ удваивается до полуминуты: если биржа или сеть лежат,
+        // бессмысленно долбить переподключением каждую секунду.
+        setTimeout(connect, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+      };
+    }
+
+    connect();
+    window.addEventListener('beforeunload', function () {
+      if (socket) { socket.onclose = null; socket.close(); }
+    });
   })();
 </script>
 {% endblock %}
