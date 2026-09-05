@@ -123,6 +123,56 @@ async def test_password_never_lands_in_login_events(session):
     assert all("secret-typo-here" not in str(e.__dict__) for e in events)
 
 
+async def test_login_throttled_after_repeated_failures(session):
+    await user_service.create_user(session, email="a@b.com", password=PASSWORD)
+    await session.commit()
+
+    for _ in range(user_service.MAX_FAILED_ATTEMPTS):
+        with pytest.raises(user_service.InvalidCredentials):
+            await user_service.authenticate(session, email="a@b.com", password="wrong-password")
+    await session.commit()
+
+    # Даже верный пароль теперь не проходит — до истечения окна.
+    with pytest.raises(user_service.TooManyAttempts):
+        await user_service.authenticate(session, email="a@b.com", password=PASSWORD)
+
+
+async def test_successful_login_resets_throttle(session):
+    """Давние опечатки не должны копиться и однажды запереть хозяина."""
+    user = await user_service.create_user(session, email="a@b.com", password=PASSWORD)
+    await session.commit()
+
+    for _ in range(user_service.MAX_FAILED_ATTEMPTS - 1):
+        with pytest.raises(user_service.InvalidCredentials):
+            await user_service.authenticate(session, email="a@b.com", password="wrong-password")
+    await session.commit()
+
+    await user_service.complete_login(session, user)
+    await session.commit()
+
+    # После удачного входа счёт начинается заново.
+    for _ in range(user_service.MAX_FAILED_ATTEMPTS - 1):
+        with pytest.raises(user_service.InvalidCredentials):
+            await user_service.authenticate(session, email="a@b.com", password="wrong-password")
+    await session.commit()
+
+    assert await user_service.authenticate(session, email="a@b.com", password=PASSWORD)
+
+
+async def test_throttle_is_per_email(session):
+    await user_service.create_user(session, email="a@b.com", password=PASSWORD)
+    await user_service.create_user(session, email="other@b.com", password=PASSWORD)
+    await session.commit()
+
+    for _ in range(user_service.MAX_FAILED_ATTEMPTS):
+        with pytest.raises(user_service.InvalidCredentials):
+            await user_service.authenticate(session, email="a@b.com", password="wrong-password")
+    await session.commit()
+
+    # Соседний аккаунт заблокировать чужими попытками нельзя.
+    assert await user_service.authenticate(session, email="other@b.com", password=PASSWORD)
+
+
 # --- Смена пароля ---
 
 

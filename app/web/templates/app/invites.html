@@ -1,0 +1,91 @@
+{% extends "app/base.html" %}
+{% block title %}Приглашения — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<h1>Приглашения</h1>
+<p class="muted">
+  Регистрация в панели закрытая: аккаунт создаётся только по коду.
+</p>
+
+{% if error %}
+  <div class="flash flash-error" role="alert">{{ error }}</div>
+{% endif %}
+
+<section class="card" style="max-width: 520px">
+  <h2>Новое приглашение</h2>
+  <form method="post" action="/admin/invites">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="field">
+      <label for="email">Привязать к почте (необязательно)</label>
+      <input type="email" id="email" name="email" placeholder="trader@example.com">
+      <div class="dim">Если указать, кодом сможет воспользоваться только этот адрес.</div>
+    </div>
+
+    <div class="field">
+      <label for="ttl_days">Срок действия, дней</label>
+      <input type="number" id="ttl_days" name="ttl_days" value="14" min="0" max="365">
+      <div class="dim">0 — без срока.</div>
+    </div>
+
+    <div class="field">
+      <label for="note">Заметка</label>
+      <input type="text" id="note" name="note" placeholder="для кого">
+    </div>
+
+    <button type="submit" class="btn btn-primary">Создать</button>
+  </form>
+</section>
+
+<section class="card" style="margin-top: 16px">
+  <h2>Выданные коды</h2>
+
+  {% if not invites %}
+    <p class="dim">Пока ни одного.</p>
+  {% else %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Ссылка</th>
+            <th>Кому</th>
+            <th>Состояние</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for invite in invites %}
+          <tr>
+            <td class="mono link-cell">{{ public_url }}/register?code={{ invite.code }}</td>
+            <td>
+              {{ invite.email or '—' }}
+              {% if invite.note %}<div class="dim">{{ invite.note }}</div>{% endif %}
+            </td>
+            <td>
+              {% if invite.used_at %}
+                <span class="dim">использовано</span>
+              {% elif invite.revoked_at %}
+                <span class="dim">отозвано</span>
+              {% else %}
+                активно
+                {% if invite.expires_at %}
+                  <div class="dim">до {{ invite.expires_at.strftime('%d.%m.%Y') }}</div>
+                {% endif %}
+              {% endif %}
+            </td>
+            <td>
+              {% if not invite.used_at and not invite.revoked_at %}
+              <form method="post" action="/admin/invites/{{ invite.id }}/revoke">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-ghost">Отозвать</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

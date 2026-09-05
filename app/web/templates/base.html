@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Crypto Hub{% endblock %}</title>
+
+  {# Тему ставим до первой отрисовки, иначе при перезагрузке светлой темы
+     мигает тёмный фон. #}
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('theme');
+        if (saved === 'light' || saved === 'dark') {
+          document.documentElement.setAttribute('data-theme', saved);
+        }
+      } catch (e) {
+        /* приватный режим — остаёмся на теме по умолчанию */
+      }
+    })();
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+</head>
+<body>
+  <button class="theme-toggle" type="button" onclick="toggleTheme()" title="Сменить тему" aria-label="Сменить тему">
+    <span aria-hidden="true">◐</span>
+  </button>
+
+  {% block body %}{% endblock %}
+
+  <script>
+    function toggleTheme() {
+      var root = document.documentElement;
+      var next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      root.setAttribute('data-theme', next);
+      try {
+        localStorage.setItem('theme', next);
+      } catch (e) {
+        /* не смогли запомнить — тема всё равно переключилась на эту сессию */
+      }
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

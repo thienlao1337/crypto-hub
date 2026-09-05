@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     web_host: str = "0.0.0.0"
     web_port: int = 8000
     session_secret: str = "dev-secret-change-me"
+    # Флаг Secure у сессионной cookie. По умолчанию включён: панель
+    # должна работать по https. Для локального запуска по http его
+    # приходится снимать, иначе браузер не отправит cookie и вход не
+    # состоится.
+    session_secure_cookie: bool = True
     # Публичный адрес панели — нужен боту для ссылок и привязки аккаунта.
     public_url: str = "http://localhost:8000"
 

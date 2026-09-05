@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — Crypto Hub{% endblock %}
+
+{% block body %}
+<div class="auth-shell">
+  <main class="auth-card">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <div class="brand-name">Crypto Hub</div>
+    </div>
+
+    <h1>{{ title }}</h1>
+    <p class="muted">{{ message }}</p>
+
+    <a class="btn btn-ghost btn-block" href="/">На главную</a>
+  </main>
+</div>
+{% endblock %}

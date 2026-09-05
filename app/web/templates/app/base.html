@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block body %}
+<header class="topbar">
+  <a class="brand" href="/">
+    <div class="brand-mark" aria-hidden="true"></div>
+    <div class="brand-name">Crypto Hub</div>
+  </a>
+
+  <nav class="topnav">
+    <a href="/">Дашборд</a>
+    <a href="/settings/security">Безопасность</a>
+    {% if current_user.is_owner %}<a href="/admin/invites">Приглашения</a>{% endif %}
+  </nav>
+
+  <div class="topbar-right">
+    <span class="dim">{{ current_user.email }}</span>
+    <form method="post" action="/logout">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="btn btn-ghost">Выйти</button>
+    </form>
+  </div>
+</header>
+
+<main class="container">
+  {% if notice %}
+    <div class="flash flash-success">{{ notice }}</div>
+  {% endif %}
+  {% block app_content %}{% endblock %}
+</main>
+{% endblock %}

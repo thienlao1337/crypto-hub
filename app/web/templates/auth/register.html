@@ -1,0 +1,46 @@
+{% extends "auth/base.html" %}
+{% block title %}Регистрация — Crypto Hub{% endblock %}
+
+{% block auth_content %}
+<h1>Регистрация</h1>
+<p class="muted">По приглашению от владельца панели.</p>
+
+<form method="post" action="/register">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="code" value="{{ code }}">
+
+  <div class="field">
+    <label for="email">Почта</label>
+    <input type="email" id="email" name="email" value="{{ email or '' }}"
+           autocomplete="username"
+           {% if bound_email %}readonly{% endif %} required autofocus>
+    {% if bound_email %}
+      <div class="dim">Приглашение выдано на этот адрес.</div>
+    {% endif %}
+  </div>
+
+  <div class="field">
+    <label for="password">Пароль</label>
+    <input type="password" id="password" name="password"
+           autocomplete="new-password" minlength="{{ min_password_length }}" required>
+    <div class="dim">Не короче {{ min_password_length }} символов.</div>
+  </div>
+
+  <div class="field">
+    <label for="password_repeat">Пароль ещё раз</label>
+    <input type="password" id="password_repeat" name="password_repeat"
+           autocomplete="new-password" required>
+  </div>
+
+  <button type="submit" class="btn btn-primary btn-block">Создать аккаунт</button>
+</form>
+
+<div class="disclaimer">
+  Панель показывает технический анализ и рыночные данные. Это не
+  финансовая рекомендация — решения по сделкам вы принимаете сами.
+</div>
+
+<div class="form-footer">
+  Уже есть аккаунт? <a href="/login">Войти</a>
+</div>
+{% endblock %}

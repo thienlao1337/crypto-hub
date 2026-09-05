@@ -1,0 +1,28 @@
+{% extends "app/base.html" %}
+{% block title %}Коды восстановления — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<h1>2FA включена</h1>
+
+<section class="card" style="max-width: 520px">
+  <h2>Коды восстановления</h2>
+
+  <div class="flash flash-warn">
+    Эти коды показываются один раз. Сохраните их сейчас — в базе хранятся
+    только хеши, восстановить список позже нельзя.
+  </div>
+
+  <p class="muted">
+    Каждый код срабатывает однократно и заменяет код из приложения, если
+    доступа к телефону нет.
+  </p>
+
+  <div class="recovery-codes">
+    {% for code in codes %}<div>{{ code }}</div>{% endfor %}
+  </div>
+
+  <a class="btn btn-primary btn-block" href="/settings/security">
+    Я сохранил коды
+  </a>
+</section>
+{% endblock %}

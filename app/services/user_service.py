@@ -9,13 +9,19 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import User, UserRecoveryCode
+from app.models import LoginEvent, User, UserRecoveryCode
 from app.models.user import ROLE_OWNER, ROLE_USER
 from app.services import audit_service, security
 
 MIN_PASSWORD_LENGTH = 10
 RECOVERY_CODES_COUNT = 10
 TELEGRAM_CODE_TTL = timedelta(minutes=15)
+
+# Ограничение перебора: после стольких неудач подряд адрес временно
+# блокируется. Счёт ведётся по login_events, поэтому работает одинаково
+# во всех процессах и переживает перезапуск.
+LOGIN_ATTEMPT_WINDOW = timedelta(minutes=15)
+MAX_FAILED_ATTEMPTS = 10
 
 
 class UserServiceError(Exception):
@@ -47,6 +53,10 @@ class InvalidTotpCode(UserServiceError):
 
 
 class TelegramCodeInvalid(UserServiceError):
+    pass
+
+
+class TooManyAttempts(UserServiceError):
     pass
 
 
@@ -134,6 +144,8 @@ async def authenticate(
     иначе можно перебрать, какие адреса зарегистрированы.
     """
     email = normalize_email(email)
+    await check_login_throttle(session, email)
+
     user = await get_by_email(session, email)
 
     if user is None:
@@ -172,6 +184,45 @@ async def authenticate(
         raise AccountInactive("Учётная запись отключена.")
 
     return user
+
+
+async def failed_attempts_since(session: AsyncSession, email: str, since: datetime) -> int:
+    result = await session.execute(
+        select(func.count())
+        .select_from(LoginEvent)
+        .where(
+            LoginEvent.email == normalize_email(email),
+            LoginEvent.is_success.is_(False),
+            LoginEvent.created_at >= since,
+        )
+    )
+    return int(result.scalar_one())
+
+
+async def check_login_throttle(session: AsyncSession, email: str) -> None:
+    """Не пускать к проверке пароля после серии неудач.
+
+    Считаем по адресу, а не по IP: перебор с ротацией исходящих узлов
+    иначе проходит мимо ограничения. Отсчёт ведётся от последнего
+    удачного входа — иначе давние опечатки копились бы и однажды
+    заблокировали хозяина аккаунта на ровном месте.
+    """
+    since = datetime.now(timezone.utc) - LOGIN_ATTEMPT_WINDOW
+
+    last_success = await session.execute(
+        select(func.max(LoginEvent.created_at)).where(
+            LoginEvent.email == normalize_email(email),
+            LoginEvent.is_success.is_(True),
+        )
+    )
+    last_success_at = last_success.scalar_one_or_none()
+    if last_success_at is not None:
+        since = max(since, _as_utc(last_success_at))
+
+    if await failed_attempts_since(session, email, since) >= MAX_FAILED_ATTEMPTS:
+        raise TooManyAttempts(
+            "Слишком много неудачных попыток. Попробуйте через 15 минут."
+        )
 
 
 async def complete_login(

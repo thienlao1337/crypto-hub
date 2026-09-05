@@ -1,0 +1,73 @@
+{% extends "app/base.html" %}
+{% block title %}Безопасность — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<h1>Безопасность</h1>
+
+{% if error %}
+  <div class="flash flash-error" role="alert">{{ error }}</div>
+{% endif %}
+
+<div class="card-grid">
+  <section class="card">
+    <h2>Двухфакторная аутентификация</h2>
+
+    {% if current_user.totp_enabled %}
+      <p>Включена. Осталось кодов восстановления: <span class="num">{{ recovery_left }}</span>.</p>
+      {% if recovery_left == 0 %}
+        <div class="flash flash-warn">
+          Коды восстановления закончились. Потеряв доступ к приложению,
+          войти будет нечем — выключите и включите 2FA заново, чтобы
+          получить новый набор.
+        </div>
+      {% endif %}
+
+      <form method="post" action="/settings/2fa/disable">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="field">
+          <label for="disable_password">Пароль для подтверждения</label>
+          <input type="password" id="disable_password" name="password"
+                 autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-ghost">Выключить 2FA</button>
+      </form>
+    {% else %}
+      <p class="muted">
+        Второй фактор защищает панель, даже если пароль утёк. Для доступа
+        к биржевым ключам это стоит включить.
+      </p>
+      <form method="post" action="/settings/2fa/start">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-primary">Включить 2FA</button>
+      </form>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Смена пароля</h2>
+    <form method="post" action="/settings/password">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <div class="field">
+        <label for="current_password">Текущий пароль</label>
+        <input type="password" id="current_password" name="current_password"
+               autocomplete="current-password" required>
+      </div>
+
+      <div class="field">
+        <label for="new_password">Новый пароль</label>
+        <input type="password" id="new_password" name="new_password"
+               autocomplete="new-password" required>
+      </div>
+
+      <div class="field">
+        <label for="new_password_repeat">Новый пароль ещё раз</label>
+        <input type="password" id="new_password_repeat" name="new_password_repeat"
+               autocomplete="new-password" required>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Сменить пароль</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

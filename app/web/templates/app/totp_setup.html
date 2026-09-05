@@ -1,0 +1,49 @@
+{% extends "app/base.html" %}
+{% block title %}Включение 2FA — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<h1>Включение 2FA</h1>
+
+{% if error %}
+  <div class="flash flash-error" role="alert">{{ error }}</div>
+{% endif %}
+
+<section class="card" style="max-width: 480px">
+  <h2>Шаг 1 — отсканируйте код</h2>
+  <p class="muted">
+    Google Authenticator, 1Password, Aegis — подойдёт любое приложение
+    с поддержкой TOTP.
+  </p>
+
+  <img src="{{ qr_data_uri }}" alt="QR-код для приложения-аутентификатора"
+       width="200" height="200"
+       style="display:block; margin:16px 0; border-radius:8px; background:#fff; padding:8px">
+
+  <p class="dim">Не сканируется? Введите ключ вручную:</p>
+  <div class="recovery-codes" style="grid-template-columns: 1fr">{{ secret }}</div>
+
+  <h2 style="margin-top:24px">Шаг 2 — подтвердите</h2>
+  <p class="muted">
+    Введите код из приложения. Пока код не подтверждён, 2FA не включается —
+    так нельзя запереть себя, отсканировав QR с ошибкой.
+  </p>
+
+  <form method="post" action="/settings/2fa/confirm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="secret" value="{{ secret }}">
+
+    <div class="field">
+      <label for="code">Код из приложения</label>
+      <input type="text" id="code" name="code" class="code-input"
+             inputmode="numeric" autocomplete="one-time-code"
+             maxlength="6" required autofocus>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-block">Подтвердить и включить</button>
+  </form>
+
+  <div class="form-footer">
+    <a href="/settings/security">Отменить</a>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="auth-shell">
+  <main class="auth-card">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <div class="brand-name">Crypto Hub</div>
+    </div>
+
+    {% if error %}
+      <div class="flash flash-error" role="alert">{{ error }}</div>
+    {% endif %}
+    {% if notice %}
+      <div class="flash flash-success">{{ notice }}</div>
+    {% endif %}
+
+    {% block auth_content %}{% endblock %}
+  </main>
+</div>
+{% endblock %}
