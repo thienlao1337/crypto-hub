@@ -1,0 +1,34 @@
+# --- Ядро ---
+aiogram==3.31.0
+SQLAlchemy==2.0.52
+asyncpg==0.31.0
+alembic==1.19.2
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+Jinja2==3.1.6
+python-multipart==0.0.32
+itsdangerous==2.2.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-dotenv==1.2.3
+
+# --- Безопасность ---
+# bcrypt используется напрямую, без passlib: passlib не выпускался с 2020
+# года и ломается на bcrypt >= 4.1, то есть тянул бы за собой устаревшую
+# версию хеширования паролей. Для продукта, который хранит API-ключи бирж,
+# это неоправданно — см. README, раздел «Отступления от типового стека».
+bcrypt==5.0.0
+cryptography==50.0.1
+pyotp==2.10.0
+qrcode[pil]==8.2
+
+# --- Биржи и рыночные данные ---
+# ccxt даёт единый интерфейс к Bybit и Binance (REST + WebSocket) и режим
+# sandbox для testnet. Версия пинуется жёстко: релизы выходят почти ежедневно.
+ccxt==4.5.77
+httpx==0.28.1
+
+# --- Индикаторы и фоновые задачи ---
+pandas==3.0.5
+numpy==2.5.2
+APScheduler==3.11.3

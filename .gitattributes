@@ -1,0 +1,10 @@
+# Код едет в Linux-контейнеры, поэтому в репозитории и в рабочей копии
+# держим LF независимо от системы разработчика: CRLF ломает shell-скрипты
+# внутри образа.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary

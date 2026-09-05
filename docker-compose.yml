@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cryptohub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cryptohub}
+      POSTGRES_DB: ${POSTGRES_DB:-cryptohub}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cryptohub} -d ${POSTGRES_DB:-cryptohub}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    env_file:
+      - .env
+
+  migrate:
+    build: .
+    command: alembic upgrade head
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: .
+    restart: unless-stopped
+    command: uvicorn app.web.main:app --host 0.0.0.0 --port 8000
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+    ports:
+      # Внутри контейнера порт всегда 8000, наружу публикуется
+      # WEB_PUBLIC_PORT — чтобы не конфликтовать с чем-то ещё на хосте.
+      - "${WEB_PUBLIC_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:

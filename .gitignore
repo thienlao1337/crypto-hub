@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+.venv/
+venv/
+env/
+
+.env
+.env.*
+!.env.example
+
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+.idea/
+.vscode/
+
+postgres_data/
+
+# Личные рабочие шаблоны для фриланс-процесса (используются в разных
+# проектах, к конкретно этому репозиторию не относятся).
+CLAUDE.md
+kickoff-prompt-template.md
