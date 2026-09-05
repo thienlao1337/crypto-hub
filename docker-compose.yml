@@ -45,5 +45,18 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Прогон тестов в том же окружении, что и рантайм:
+  #   docker compose --profile test run --rm tests
+  tests:
+    build:
+      context: .
+      target: dev
+    profiles: ["test"]
+    command: pytest -q
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+
 volumes:
   postgres_data:
