@@ -194,6 +194,82 @@ async def test_visible_notification_waits_for_push(session, user):
     assert row.delivered_push is False
 
 
+async def test_delivery_sends_to_every_device_and_marks_done(session, user, vapid, monkeypatch):
+    await webpush.subscribe(session, user, endpoint=ENDPOINT + "/1", p256dh="k", auth="a")
+    await webpush.subscribe(session, user, endpoint=ENDPOINT + "/2", p256dh="k", auth="a")
+    await ns.push(session, user_id=user.id, kind=ns.KIND_ALERT, title="t", body="b")
+    await session.commit()
+
+    calls = []
+
+    async def fake_send(**kwargs):
+        calls.append(kwargs["endpoint"])
+        return webpush.SendResult(ok=True)
+
+    monkeypatch.setattr(webpush, "send", fake_send)
+    _use_test_session(monkeypatch, session)
+
+    sent = await delivery.deliver_web_push()
+
+    assert sent == 2
+    assert sorted(calls) == [ENDPOINT + "/1", ENDPOINT + "/2"]
+
+    row = (await session.execute(select(Notification))).scalar_one()
+    assert row.delivered_push is True
+
+
+async def test_delivery_drops_dead_subscription(session, user, vapid, monkeypatch):
+    """Мёртвые подписки копились бы при каждой смене браузера."""
+    await webpush.subscribe(session, user, endpoint=ENDPOINT, p256dh="k", auth="a")
+    await ns.push(session, user_id=user.id, kind=ns.KIND_ALERT, title="t", body="b")
+    await session.commit()
+
+    async def fake_send(**kwargs):
+        return webpush.SendResult(ok=False, gone=True, error="Подписка больше не действует.")
+
+    monkeypatch.setattr(webpush, "send", fake_send)
+    _use_test_session(monkeypatch, session)
+
+    assert await delivery.deliver_web_push() == 0
+    assert (await session.execute(select(PushSubscription))).scalars().all() == []
+
+
+async def test_delivery_keeps_subscription_on_temporary_error(session, user, vapid, monkeypatch):
+    await webpush.subscribe(session, user, endpoint=ENDPOINT, p256dh="k", auth="a")
+    await ns.push(session, user_id=user.id, kind=ns.KIND_ALERT, title="t", body="b")
+    await session.commit()
+
+    async def fake_send(**kwargs):
+        return webpush.SendResult(ok=False, error="Push-сервис ответил 500.")
+
+    monkeypatch.setattr(webpush, "send", fake_send)
+    _use_test_session(monkeypatch, session)
+
+    await delivery.deliver_web_push()
+
+    subscription = (await session.execute(select(PushSubscription))).scalar_one()
+    assert subscription.last_error == "Push-сервис ответил 500."
+    # Повторять не станем: пуш ценен свежестью.
+    row = (await session.execute(select(Notification))).scalar_one()
+    assert row.delivered_push is True
+
+
+def _use_test_session(monkeypatch, session):
+    """Подсунуть задаче доставки сессию теста.
+
+    Фоновая задача открывает свои сессии через session_scope, а тестовая
+    база живёт во внешней транзакции — без подмены задача не увидела бы
+    ничего из того, что тест только что записал.
+    """
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def scope():
+        yield session
+
+    monkeypatch.setattr(delivery, "session_scope", scope)
+
+
 # --- Настоящий запрос к push-сервису ---
 
 

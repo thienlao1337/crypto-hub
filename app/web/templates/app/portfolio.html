@@ -136,10 +136,13 @@
             </td>
             <td class="dim">{{ p.exchange }}</td>
             <td class="num right">{{ p.amount|amount }}</td>
-            <td class="num right">{{ p.entry_price|amount }}</td>
+            {# Средняя цена входа — результат деления, и хвост из восьми
+               знаков в ней читается как мусор. Фильтр всё равно добавит
+               знаков там, где цена меньше единицы. #}
+            <td class="num right">{{ p.entry_price|amount(2) }}</td>
             <td class="num right">
               {% if p.mark_price is none %}<span class="dim">—</span>
-              {% else %}{{ p.mark_price|amount }}{% endif %}
+              {% else %}{{ p.mark_price|amount(2) }}{% endif %}
             </td>
             <td class="num right dim">
               {% if p.cost_usd is none %}—{% else %}{{ p.cost_usd|usd }}{% endif %}
