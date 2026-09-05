@@ -76,7 +76,12 @@ def money(value) -> str:
         return "—"
     if not isinstance(value, Decimal):
         value = Decimal(str(value))
-    return f"${value.quantize(Decimal('0.01')):,}".replace(",", " ")
+    text = f"{value.quantize(Decimal('0.01')):,}".replace(",", " ")
+    # Знак перед символом валюты: «-$500», а не «$-500». Отрицательные
+    # суммы здесь появляются у нереализованного PnL.
+    if text.startswith("-"):
+        return f"-${text[1:]}"
+    return f"${text}"
 
 
 def percent(value, *, signed: bool = True) -> str:

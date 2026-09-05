@@ -43,6 +43,7 @@ from app.services import (
     candle_service,
     market_service,
     portfolio_service,
+    position_service,
     signal_service,
 )
 
@@ -81,6 +82,19 @@ async def refresh_tickers() -> None:
             logger.debug("Котировки %s обновлены: %s", code, count)
         except Exception:
             logger.exception("Не удалось обновить котировки %s", code)
+
+    # Переоценка позиций идёт здесь же, а не отдельной задачей: цена
+    # входа и цена «сейчас» должны быть из одного среза котировок,
+    # иначе нереализованный PnL показывает разницу между разными
+    # моментами времени.
+    try:
+        async with session_scope() as session:
+            marked = await position_service.mark_positions(session)
+            await session.commit()
+        if marked:
+            logger.debug("Переоценено позиций: %s", marked)
+    except Exception:
+        logger.exception("Не удалось переоценить позиции")
 
 
 async def sync_balances() -> None:
@@ -128,6 +142,10 @@ async def sync_trades() -> None:
                     count = await portfolio_service.sync_trades(
                         session, account, adapter, symbols=symbols
                     )
+                    # Новая сделка меняет среднюю цену входа, поэтому
+                    # позиции пересобираются тут же: разъехавшийся PnL
+                    # до следующего цикла — это неверная цифра на экране.
+                    await position_service.rebuild_positions(session, account)
                     await session.commit()
                 finally:
                     await adapter.close()

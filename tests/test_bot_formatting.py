@@ -79,6 +79,8 @@ def test_number_has_no_zero_tail():
 
 def test_money_and_percent():
     assert formatting.money(Decimal("85054.5")) == "$85 054.50"
+    # Убыток пишется как «-$500», а не «$-500».
+    assert formatting.money(Decimal("-500")) == "-$500.00"
     assert formatting.percent(Decimal("5.256")) == "+5.26%"
     assert formatting.percent(Decimal("-1.6")) == "-1.60%"
     assert formatting.percent(None) == "—"

@@ -14,7 +14,13 @@ from app.bot import formatting
 from app.bot.handlers.common import link_hint
 from app.models import Exchange, Market, MarketTicker, User
 from app.models.market import MARKET_TYPE_SPOT
-from app.services import alert_service, portfolio_service, signal_service, watchlist_service
+from app.services import (
+    alert_service,
+    portfolio_service,
+    position_service,
+    signal_service,
+    watchlist_service,
+)
 
 router = Router(name="data")
 
@@ -40,6 +46,14 @@ async def portfolio(message: Message, session: AsyncSession, user: User | None) 
         lines.append(
             f"{formatting.arrow(summary.change_24h_pct)} "
             f"{formatting.percent(summary.change_24h_pct)} за сутки"
+        )
+
+    positions = await position_service.list_positions(session, user)
+    unrealized = position_service.total_unrealized(positions)
+    if unrealized is not None:
+        lines.append(
+            f"{formatting.arrow(unrealized)} {formatting.money(unrealized)} "
+            "нереализованного PnL"
         )
 
     if summary.by_exchange:

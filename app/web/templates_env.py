@@ -44,7 +44,12 @@ def format_amount(value, max_decimals: int = 8) -> str:
     return _group(text)
 
 
-def format_usd(value, decimals: int = 2) -> str:
+def format_usd(value, decimals: int = 2, *, signed: bool = False) -> str:
+    """Сумма в долларах. signed нужен там, где важен знак прибыли.
+
+    Для PnL плюс не менее содержателен, чем минус: «$120» и «+$120»
+    читаются по-разному, когда рядом в колонке стоят убытки.
+    """
     if value is None:
         return DASH
     try:
@@ -56,7 +61,7 @@ def format_usd(value, decimals: int = 2) -> str:
     # Знак ставится перед символом валюты: «-$500», а не «$-500».
     if text.startswith("-"):
         return f"-${text[1:]}"
-    return f"${text}"
+    return f"+${text}" if signed else f"${text}"
 
 
 def format_usd_short(value) -> str:

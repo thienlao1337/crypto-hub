@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_session
 from app.models import User
 from app.services import exchange_keys_service as keys_service
-from app.services import portfolio_service
+from app.services import portfolio_service, position_service
 from app.web import auth
 from app.web.templates_env import templates
 
@@ -31,6 +31,7 @@ async def portfolio_page(
 
     summary = await portfolio_service.build_summary(session, user)
     snapshots = await portfolio_service.history(session, user, period)
+    positions = await position_service.list_positions(session, user)
 
     # График получает данные отдельным блоком JSON, а не через шаблонные
     # подстановки внутрь скрипта: так значения не приходится экранировать
@@ -54,6 +55,8 @@ async def portfolio_page(
             "periods": list(portfolio_service.PERIODS),
             "chart_json": json.dumps(chart_data),
             "donut": _donut_segments(summary),
+            "positions": positions,
+            "unrealized_total": position_service.total_unrealized(positions),
         },
     )
 
@@ -95,6 +98,7 @@ async def sync_now(
         adapter = await keys_service.build_adapter(session, account)
         try:
             await portfolio_service.sync_balances(session, account, adapter)
+            await position_service.rebuild_positions(session, account)
             await keys_service.mark_synced(session, account)
         except Exception as exc:
             logger.warning("Синхронизация подключения %s не удалась: %s", account.id, exc)
@@ -102,6 +106,7 @@ async def sync_now(
         finally:
             await adapter.close()
 
+    await position_service.mark_positions(session)
     await session.commit()
     return RedirectResponse("/portfolio", status_code=303)
 

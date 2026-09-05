@@ -26,6 +26,7 @@
             <th class="right">Количество</th>
             <th class="right">Сумма</th>
             <th class="right">Комиссия</th>
+            <th class="right">Результат</th>
           </tr>
         </thead>
         <tbody>
@@ -47,11 +48,27 @@
             <td class="num right dim">
               {% if trade.fee %}{{ trade.fee|amount }}{% else %}—{% endif %}
             </td>
+            <td class="num right">
+              {% if trade.realized_pnl is none %}
+                <span class="dim">—</span>
+              {% else %}
+                <span class="{{ 'up' if trade.realized_pnl >= 0 else 'down' }}">
+                  {{ trade.realized_pnl|usd(signed=True) }}
+                </span>
+              {% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+
+    <p class="dim" style="margin-top:16px">
+      «Результат» заполняется только у продаж: это разница между
+      выручкой и средней ценой входа на момент сделки. Прочерк у продажи
+      означает, что покупка осталась за пределами истории, которую
+      отдала биржа, — считать разницу не от чего.
+    </p>
   {% endif %}
 </section>
 {% endblock %}

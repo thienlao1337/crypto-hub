@@ -48,6 +48,19 @@ def test_format_usd(value, expected):
 
 
 @pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (Decimal("120.5"), "+$120.50"),
+        (Decimal("-120.5"), "-$120.50"),
+        (Decimal("0"), "+$0.00"),
+    ],
+)
+def test_format_usd_signed(value, expected):
+    """У PnL плюс так же содержателен, как минус."""
+    assert format_usd(value, signed=True) == expected
+
+
+@pytest.mark.parametrize(
     ("value", "signed", "expected"),
     [
         (Decimal("5.256"), True, "+5.26%"),

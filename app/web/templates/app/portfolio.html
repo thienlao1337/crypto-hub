@@ -34,6 +34,16 @@
       <span class="dim">24ч</span> {{ change(summary.change_24h_pct) }}
       <span class="dim">7д</span> {{ change(summary.change_7d_pct) }}
     </div>
+    <div class="stat-row">
+      <span class="dim">нереализованный PnL</span>
+      {% if unrealized_total is none %}
+        <span class="dim">—</span>
+      {% else %}
+        <span class="num {{ 'up' if unrealized_total >= 0 else 'down' }}">
+          {{ unrealized_total|usd(signed=True) }}
+        </span>
+      {% endif %}
+    </div>
   </section>
 
   <section class="card">
@@ -88,6 +98,79 @@
     История появится, когда фоновая синхронизация накопит снимки.
   </p>
   <script type="application/json" id="chart-data">{{ chart_json|safe }}</script>
+</section>
+
+<section class="card" style="margin-top:16px">
+  <div class="page-head">
+    <h2>Открытые позиции</h2>
+    <span class="dim">нереализованный PnL</span>
+  </div>
+
+  {% if not positions %}
+    <p class="dim">
+      Позиции собираются из истории сделок по отслеживаемым парам.
+      Пока история не подтянулась, показывать нечего.
+    </p>
+  {% else %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Пара</th>
+            <th>Биржа</th>
+            <th class="right">Количество</th>
+            <th class="right">Средний вход</th>
+            <th class="right">Сейчас</th>
+            <th class="right">Вложено</th>
+            <th class="right">PnL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in positions %}
+          <tr>
+            <td>
+              <strong>{{ p.symbol }}</strong>
+              {% if not p.cost_basis_complete %}
+                <span class="badge badge-warn" title="История сделок неполная">частично</span>
+              {% endif %}
+            </td>
+            <td class="dim">{{ p.exchange }}</td>
+            <td class="num right">{{ p.amount|amount }}</td>
+            <td class="num right">{{ p.entry_price|amount }}</td>
+            <td class="num right">
+              {% if p.mark_price is none %}<span class="dim">—</span>
+              {% else %}{{ p.mark_price|amount }}{% endif %}
+            </td>
+            <td class="num right dim">
+              {% if p.cost_usd is none %}—{% else %}{{ p.cost_usd|usd }}{% endif %}
+            </td>
+            <td class="num right">
+              {% if p.unrealized_pnl is none %}
+                <span class="dim">—</span>
+              {% else %}
+                <span class="{{ 'up' if p.unrealized_pnl >= 0 else 'down' }}">
+                  {{ p.unrealized_pnl|usd(signed=True) }}
+                  {% if p.unrealized_pct is not none %}
+                    <span class="dim">{{ p.unrealized_pct|pct(2, signed=True) }}</span>
+                  {% endif %}
+                </span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if positions | rejectattr('cost_basis_complete') | list %}
+      <div class="flash flash-warn" style="margin-top:16px">
+        Пары, помеченные «частично»: история сделок за отданный биржей
+        период не объясняет весь остаток на балансе. Средняя цена входа
+        по ним посчитана по тому, что известно, и всей позиции не
+        описывает.
+      </div>
+    {% endif %}
+  {% endif %}
 </section>
 
 <section class="card" style="margin-top: 16px">
