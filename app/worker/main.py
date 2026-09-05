@@ -96,6 +96,12 @@ def build_scheduler() -> AsyncIOScheduler:
         id="deliver_telegram",
     )
     scheduler.add_job(
+        delivery.deliver_web_push,
+        "interval",
+        seconds=15,
+        id="deliver_web_push",
+    )
+    scheduler.add_job(
         tasks.run_autotrade,
         "interval",
         seconds=60,

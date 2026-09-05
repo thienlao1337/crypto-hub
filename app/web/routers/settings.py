@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.models import User
-from app.services import notification_service, security, user_service
+from app.services import notification_service, security, user_service, webpush
 from app.web import auth, flash, qr
 from app.web.templates_env import templates
 
@@ -52,6 +52,8 @@ async def notification_settings_page(
             "event_hints": notification_service.EVENT_HINTS,
             "channel_titles": notification_service.CHANNEL_TITLES,
             "telegram_linked": user.telegram_id is not None,
+            "push_enabled": webpush.is_configured(),
+            "subscriptions": await webpush.list_subscriptions(session, user),
         },
     )
 

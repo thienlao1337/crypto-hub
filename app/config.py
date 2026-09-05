@@ -43,6 +43,17 @@ class Settings(BaseSettings):
     # --- Telegram-бот ---
     bot_token: str = ""
 
+    # --- Веб-пуш ---
+    # Пара ключей VAPID: ими push-сервис браузера отличает наш сервер от
+    # чужого. Сгенерировать:
+    #   docker compose run --rm web python -m app.services.webpush
+    # Пусто — веб-пуш просто выключен, остальные каналы работают.
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    # Контакт для push-сервиса: по нему он свяжется, если с отправкой
+    # что-то не так. Требование спецификации, mailto: или https:.
+    vapid_subject: str = "mailto:admin@example.com"
+
     # --- Внешние источники данных ---
     # CoinGecko без ключа работает на публичном тире с жёстким лимитом;
     # demo-ключ бесплатный и поднимает лимит. Пусто — работаем без ключа.

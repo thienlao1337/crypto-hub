@@ -11,6 +11,7 @@ from app.models.alert import (
     AlertType,
     Notification,
     NotificationSetting,
+    PushSubscription,
 )
 from app.models.audit import AuditLog
 from app.models.exchange import Exchange, ExchangeAccount
@@ -68,6 +69,7 @@ __all__ = [
     "AlertTrigger",
     "Notification",
     "NotificationSetting",
+    "PushSubscription",
     # trading
     "Strategy",
     "BotOrder",

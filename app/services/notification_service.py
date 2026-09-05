@@ -105,8 +105,10 @@ async def push(
         payload=payload,
         show_web=show_web,
         # Отключённый канал помечаем доставленным сразу: очередь отправки
-        # не должна разбираться, кому что разрешено.
+        # не должна разбираться, кому что разрешено. Веб-пуш привязан к
+        # ленте — что не показывается в панели, то и не пушится.
         delivered_telegram=not send_telegram,
+        delivered_push=not show_web,
     )
     session.add(notification)
     await session.flush()

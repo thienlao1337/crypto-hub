@@ -127,6 +127,9 @@ class Notification(Base):
     # Отправка в Telegram отделена от записи: уведомление не теряется,
     # если бот в этот момент недоступен, и уходит следующим проходом.
     delivered_telegram: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Веб-пуш идёт по тому же каналу, что и лента: пуш — это способ
+    # доставить в браузер то, что и так попало бы в ленту.
+    delivered_push: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     delivery_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -143,3 +146,32 @@ class NotificationSetting(Base):
     event_type: Mapped[str] = mapped_column(String(32), nullable=False)
     channel: Mapped[str] = mapped_column(String(16), nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class PushSubscription(Base):
+    """Подписка браузера на веб-пуш.
+
+    Одна строка на устройство и браузер: подписавшись с телефона и с
+    ноутбука, пользователь получает уведомление на оба. endpoint выдаёт
+    push-сервис браузера, он же служит идентификатором — переподписка с
+    того же устройства обновляет строку, а не плодит новые.
+    """
+
+    __tablename__ = "push_subscriptions"
+    __table_args__ = (UniqueConstraint("endpoint"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    endpoint: Mapped[str] = mapped_column(Text, nullable=False)
+    # Ключи из PushSubscription браузера: ими шифруется полезная
+    # нагрузка, читать её может только это устройство.
+    p256dh: Mapped[str] = mapped_column(String(255), nullable=False)
+    auth: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    # Чтобы в списке устройств было видно, какое из них какое.
+    label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
