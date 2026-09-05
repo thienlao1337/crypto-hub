@@ -5,15 +5,7 @@ import pytest
 
 from app.services import security
 
-
-@pytest.fixture(autouse=True)
-def encryption_key(monkeypatch):
-    """Свой ключ шифрования на тесты, независимый от .env разработчика."""
-    key = base64.urlsafe_b64encode(os.urandom(32)).decode()
-    monkeypatch.setattr(security.get_settings(), "encryption_key", key, raising=False)
-    security._fernet.cache_clear()
-    yield key
-    security._fernet.cache_clear()
+# Ключ шифрования подставляет автоиспользуемая фикстура из conftest.
 
 
 # --- Шифрование ---
