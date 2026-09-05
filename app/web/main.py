@@ -16,6 +16,8 @@ from app.web import auth
 from app.web.routers import auth as auth_router
 from app.web.routers import dashboard as dashboard_router
 from app.web.routers import invites as invites_router
+from app.web.routers import keys as keys_router
+from app.web.routers import portfolio as portfolio_router
 from app.web.routers import settings as settings_router
 from app.web.templates_env import STATIC_DIR, templates
 
@@ -63,6 +65,8 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 app.include_router(auth_router.router)
 app.include_router(dashboard_router.router)
+app.include_router(portfolio_router.router)
+app.include_router(keys_router.router)
 app.include_router(settings_router.router)
 app.include_router(invites_router.router)
 

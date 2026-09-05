@@ -49,7 +49,13 @@ def issue_csrf_token(request: Request) -> str:
 
 def verify_csrf(request: Request, token: str | None) -> None:
     expected = request.session.get(SESSION_CSRF)
-    if not expected or not token or not hmac.compare_digest(expected, token):
+    if not expected or not token:
+        raise CsrfInvalid("Форма устарела. Обновите страницу и попробуйте снова.")
+
+    # Сравниваем байты, а не строки: compare_digest на строках с
+    # не-ASCII символами бросает TypeError, и присланная кириллица в поле
+    # токена роняла бы обработчик вместо аккуратного отказа.
+    if not hmac.compare_digest(expected.encode("utf-8"), token.encode("utf-8")):
         raise CsrfInvalid("Форма устарела. Обновите страницу и попробуйте снова.")
 
 

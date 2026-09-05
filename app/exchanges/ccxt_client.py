@@ -51,11 +51,12 @@ class CcxtAdapter:
         self.code = exchange_code
         self.testnet = testnet
 
-        options: dict = {"defaultType": "spot"}
-        if exchange_code == EXCHANGE_BYBIT:
-            # Иначе load_markets тянет ещё и опционы: лишние запросы и
-            # лишняя точка отказа, а продукту нужен только спот.
-            options["fetchMarkets"] = ["spot"]
+        # Обеим биржам грузим только спот. Иначе ccxt тянет ещё и
+        # опционы (Bybit) и маржинальные пары (Binance): лишние запросы,
+        # лишние точки отказа, а маржинальный эндпоинт Binance к тому же
+        # требует прав, которых у ключа «только чтение» может не быть —
+        # и проверка обычного ключа падала с невнятной ошибкой.
+        options: dict = {"defaultType": "spot", "fetchMarkets": ["spot"]}
 
         factory = getattr(ccxt, exchange_code)
         self._client = factory(
@@ -91,12 +92,34 @@ class CcxtAdapter:
         """
         try:
             await self._client.fetch_balance()
-        except ccxt.AuthenticationError as exc:
-            return KeyCheck(is_valid=False, error=f"Ключ отклонён биржей: {exc}")
-        except ccxt.PermissionDenied as exc:
-            return KeyCheck(is_valid=False, error=f"Недостаточно прав у ключа: {exc}")
+        except ccxt.AuthenticationError:
+            return KeyCheck(is_valid=False, error="Биржа отклонила ключ: неверный ключ или секрет.")
+        except ccxt.PermissionDenied:
+            return KeyCheck(
+                is_valid=False,
+                error="У ключа недостаточно прав. Проверьте разрешения в кабинете биржи.",
+            )
+        except ccxt.RateLimitExceeded:
+            return KeyCheck(
+                is_valid=False,
+                error="Биржа временно ограничила запросы. Попробуйте через минуту.",
+            )
+        except (ccxt.NetworkError, ccxt.ExchangeNotAvailable):
+            return KeyCheck(
+                is_valid=False, error="Не удалось связаться с биржей. Попробуйте позже."
+            )
         except ccxt.BaseError as exc:
-            return KeyCheck(is_valid=False, error=_describe(exc))
+            # Текст ccxt здесь — это обычно сырой URL запроса вместе с
+            # подписью. В интерфейс такое отдавать нельзя: пользователю
+            # непонятно, а подпись в разметке не нужна.
+            logger.warning("Проверка ключа %s не удалась: %s", self.code, exc)
+            return KeyCheck(
+                is_valid=False,
+                error=(
+                    f"Биржа не приняла ключ ({exc.__class__.__name__}). "
+                    "Подробности — в журнале сервера."
+                ),
+            )
 
         can_trade, known = await self._probe_trading_permission()
         return KeyCheck(is_valid=True, can_trade=can_trade, permissions_known=known)

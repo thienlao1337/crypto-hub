@@ -1,0 +1,6 @@
+{# Сообщения, пережившие редирект. Показываются один раз: обработчик
+   контекста забирает их из сессии при отрисовке. #}
+{% for message in flashes %}
+  <div class="flash flash-{{ message.kind }}"
+       {% if message.kind == 'error' %}role="alert"{% endif %}>{{ message.text }}</div>
+{% endfor %}

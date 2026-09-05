@@ -1,0 +1,202 @@
+{% extends "app/base.html" %}
+{% block title %}Портфель — Crypto Hub{% endblock %}
+
+{% macro change(value) %}
+  {% if value is none %}
+    <span class="dim">—</span>
+  {% else %}
+    <span class="num {{ 'up' if value >= 0 else 'down' }}">{{ value|pct(2, signed=True) }}</span>
+  {% endif %}
+{% endmacro %}
+
+{% block app_content %}
+<div class="page-head">
+  <h1>Портфель</h1>
+  <form method="post" action="/portfolio/sync">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="btn btn-ghost">Обновить</button>
+  </form>
+</div>
+
+{% if not summary.has_accounts %}
+  <section class="card">
+    <h2>Нет подключений</h2>
+    <p class="muted">Чтобы увидеть портфель, подключите ключ биржи.</p>
+    <a class="btn btn-primary" href="/settings/keys">Подключить биржу</a>
+  </section>
+{% else %}
+
+<div class="card-grid">
+  <section class="card">
+    <h2>Общая стоимость</h2>
+    <div class="num stat-value">{{ summary.total_usd|usd }}</div>
+    <div class="stat-row">
+      <span class="dim">24ч</span> {{ change(summary.change_24h_pct) }}
+      <span class="dim">7д</span> {{ change(summary.change_7d_pct) }}
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>По биржам</h2>
+    {% for code, value in summary.by_exchange.items() %}
+      <div class="stat-row">
+        <span>{{ code }}</span>
+        <span class="num">{{ value|usd }}</span>
+      </div>
+    {% else %}
+      <p class="dim">Пусто.</p>
+    {% endfor %}
+  </section>
+
+  <section class="card">
+    <h2>Распределение</h2>
+    {% if donut %}
+      <div class="donut-wrap">
+        <div class="donut" style="background: conic-gradient(
+          {%- for s in donut -%}
+            var(--cat-{{ s.index }}) {{ s.start }}% {{ s.end }}%{{ ', ' if not loop.last }}
+          {%- endfor -%}
+        )"></div>
+        <ul class="legend">
+          {% for s in donut %}
+            <li>
+              <i style="background: var(--cat-{{ s.index }})"></i>
+              {{ s.label }}
+              <span class="num dim">{{ s.share|pct(1) }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% else %}
+      <p class="dim">Нечего показать.</p>
+    {% endif %}
+  </section>
+</div>
+
+<section class="card">
+  <div class="page-head">
+    <h2>Стоимость во времени</h2>
+    <div class="segmented">
+      {% for code in periods %}
+        <a href="/portfolio?period={{ code }}" class="{{ 'active' if code == period }}">{{ code }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div id="value-chart" class="chart"></div>
+  <p class="dim" id="chart-empty" hidden>
+    История появится, когда фоновая синхронизация накопит снимки.
+  </p>
+  <script type="application/json" id="chart-data">{{ chart_json|safe }}</script>
+</section>
+
+<section class="card" style="margin-top: 16px">
+  <div class="page-head">
+    <h2>Активы</h2>
+    <a href="/portfolio/trades" class="dim">История сделок →</a>
+  </div>
+
+  <div class="table-scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Монета</th>
+          <th class="right">Количество</th>
+          <th class="right">Стоимость</th>
+          <th class="right">Доля</th>
+          <th class="right">24ч</th>
+          <th>По биржам</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in summary.holdings %}
+        <tr>
+          <td><strong>{{ h.asset_symbol }}</strong></td>
+          <td class="num right">{{ h.total|amount }}</td>
+          <td class="num right">
+            {% if h.usd_value is none %}
+              <span class="dim">—</span>
+            {% else %}
+              {{ h.usd_value|usd }}
+            {% endif %}
+          </td>
+          <td class="num right">
+            {% if h.share_pct is none %}<span class="dim">—</span>
+            {% else %}{{ h.share_pct|pct(1) }}{% endif %}
+          </td>
+          <td class="right">{{ change(h.change_24h_pct) }}</td>
+          <td class="dim">
+            {% for code, amount in h.by_exchange.items() %}
+              {{ code }} {{ amount|amount }}{{ ', ' if not loop.last }}
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if summary.unpriced %}
+    <div class="flash flash-warn" style="margin-top: 16px">
+      Не удалось оценить в долларах: {{ summary.unpriced|join(', ') }}.
+      По этим монетам нет пары к стейблкоину на подключённых биржах —
+      в общую стоимость они не входят.
+    </div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+  (function () {
+    var host = document.getElementById('value-chart');
+    var raw = document.getElementById('chart-data');
+    if (!host || !raw) return;
+
+    var points = JSON.parse(raw.textContent || '[]');
+    if (points.length < 2) {
+      host.hidden = true;
+      var note = document.getElementById('chart-empty');
+      if (note) note.hidden = false;
+      return;
+    }
+
+    function token(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    var chart = LightweightCharts.createChart(host, { height: 260 });
+    var series = chart.addAreaSeries({ lineWidth: 2 });
+
+    function applyTheme() {
+      var border = token('--border');
+      chart.applyOptions({
+        layout: { background: { color: 'transparent' }, textColor: token('--text-muted') },
+        grid: { vertLines: { color: border }, horzLines: { color: border } },
+        rightPriceScale: { borderColor: border },
+        timeScale: { borderColor: border }
+      });
+      var accent = token('--accent');
+      series.applyOptions({
+        lineColor: accent,
+        topColor: token('--chart-area-top'),
+        bottomColor: token('--chart-area-bottom')
+      });
+    }
+
+    applyTheme();
+    document.addEventListener('themechange', applyTheme);
+
+    series.setData(points.map(function (p) {
+      return { time: Math.floor(new Date(p.time).getTime() / 1000), value: p.value };
+    }));
+    chart.timeScale().fitContent();
+
+    new ResizeObserver(function () {
+      chart.applyOptions({ width: host.clientWidth });
+    }).observe(host);
+  })();
+</script>
+{% endblock %}

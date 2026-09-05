@@ -1,0 +1,57 @@
+{% extends "app/base.html" %}
+{% block title %}История сделок — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<div class="page-head">
+  <h1>История сделок</h1>
+  <a href="/portfolio" class="dim">← Портфель</a>
+</div>
+
+<section class="card">
+  {% if not rows %}
+    <p class="dim">
+      Сделок пока нет. Биржи отдают ограниченный период истории, поэтому
+      старые сделки могут не подтянуться вовсе.
+    </p>
+  {% else %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Время</th>
+            <th>Биржа</th>
+            <th>Пара</th>
+            <th>Сторона</th>
+            <th class="right">Цена</th>
+            <th class="right">Количество</th>
+            <th class="right">Сумма</th>
+            <th class="right">Комиссия</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for trade, symbol, exchange_code in rows %}
+          <tr>
+            <td class="num dim">{{ trade.executed_at.strftime('%d.%m.%Y %H:%M') }}</td>
+            <td>{{ exchange_code }}</td>
+            <td><strong>{{ symbol }}</strong></td>
+            <td>
+              {# Сторона сделки — это направление, тот же смысл, что у роста
+                 и падения цены, поэтому цвета здесь уместны. #}
+              <span class="{{ 'up' if trade.side == 'buy' else 'down' }}">
+                {{ 'покупка' if trade.side == 'buy' else 'продажа' }}
+              </span>
+            </td>
+            <td class="num right">{{ trade.price|amount }}</td>
+            <td class="num right">{{ trade.amount|amount }}</td>
+            <td class="num right">{{ trade.cost|usd }}</td>
+            <td class="num right dim">
+              {% if trade.fee %}{{ trade.fee|amount }}{% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

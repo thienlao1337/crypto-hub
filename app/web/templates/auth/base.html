@@ -8,6 +8,7 @@
       <div class="brand-name">Crypto Hub</div>
     </div>
 
+    {% include "_flashes.html" %}
     {% if error %}
       <div class="flash flash-error" role="alert">{{ error }}</div>
     {% endif %}

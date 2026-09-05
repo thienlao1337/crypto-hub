@@ -8,7 +8,7 @@ from app.config import get_settings
 from app.db import get_session
 from app.models import Invite, User
 from app.services import invite_service
-from app.web import auth
+from app.web import auth, flash
 from app.web.templates_env import templates
 
 router = APIRouter(prefix="/admin/invites", tags=["invites"])
@@ -78,13 +78,12 @@ async def revoke_invite(
     try:
         await invite_service.revoke_invite(session, invite, by=user)
     except invite_service.InviteError as exc:
+        # Откат помечает загруженные объекты протухшими, поэтому страницу
+        # не отрисовываем, а перенаправляем — см. app/web/flash.py.
         await session.rollback()
-        return templates.TemplateResponse(
-            request,
-            "app/invites.html",
-            await _context(request, session, user, error=str(exc)),
-            status_code=400,
-        )
+        flash.error(request, str(exc))
+        return RedirectResponse("/admin/invites", status_code=303)
 
     await session.commit()
+    flash.success(request, "Приглашение отозвано.")
     return RedirectResponse("/admin/invites", status_code=303)

@@ -45,6 +45,11 @@
   --danger: #ff6b6b;
   --danger-soft: rgba(255, 107, 107, 0.1);
 
+  /* Заливка под линией графика: график рисуется на canvas и цвета
+     читает отсюда, поэтому они объявлены токенами, а не в скрипте. */
+  --chart-area-top: rgba(124, 92, 255, 0.28);
+  --chart-area-bottom: rgba(124, 92, 255, 0.02);
+
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 18px;
@@ -77,6 +82,9 @@
   --down: #e2344c;
   --up-soft: rgba(18, 168, 112, 0.1);
   --down-soft: rgba(226, 52, 76, 0.1);
+
+  --chart-area-top: rgba(101, 68, 232, 0.22);
+  --chart-area-bottom: rgba(101, 68, 232, 0.02);
 
   --shadow: 0 6px 20px rgba(19, 23, 34, 0.08);
 }
@@ -537,6 +545,180 @@ input::placeholder {
     padding-left: 16px;
     padding-right: 16px;
   }
+}
+
+/* --- Заголовок раздела с действием справа --- */
+
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.page-head h1,
+.page-head h2 {
+  margin-bottom: 0;
+}
+
+.right {
+  text-align: right;
+}
+
+.text-danger {
+  color: var(--danger);
+}
+
+/* --- Показатели --- */
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  margin: 4px 0 8px;
+}
+
+.stat-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 0.9rem;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.badge-warn {
+  background: var(--warn-soft);
+  border-color: rgba(245, 165, 36, 0.35);
+  color: var(--warn);
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.check input {
+  width: auto;
+  accent-color: var(--accent);
+}
+
+/* --- Переключатель периода --- */
+
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.segmented a {
+  padding: 4px 12px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.segmented a:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.segmented a.active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.chart {
+  width: 100%;
+  min-height: 260px;
+  margin-top: 12px;
+}
+
+/* --- Круговая диаграмма ---
+ * Категориальные цвета намеренно не включают зелёный и красный: они
+ * заняты направлением цены, и монета в легенде не должна читаться как
+ * «выросла».
+ */
+
+:root {
+  --cat-0: #7c5cff;
+  --cat-1: #22d3ee;
+  --cat-2: #b06cff;
+  --cat-3: #3b82f6;
+  --cat-4: #f5a524;
+  --cat-5: #06b6d4;
+  --cat-6: #8b5cf6;
+  --cat-7: #64748b;
+}
+
+.donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.donut {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  flex: none;
+  /* Дырка посередине — маской, чтобы не городить SVG. */
+  -webkit-mask: radial-gradient(circle, transparent 54%, #000 55%);
+  mask: radial-gradient(circle, transparent 54%, #000 55%);
+}
+
+.legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.85rem;
+  min-width: 140px;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+}
+
+.legend span {
+  margin-left: auto;
 }
 
 /* Уважаем системную настройку: анимации выключаются целиком. */

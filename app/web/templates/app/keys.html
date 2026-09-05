@@ -1,0 +1,131 @@
+{% extends "app/base.html" %}
+{% block title %}Ключи бирж — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<h1>Ключи бирж</h1>
+
+<section class="card">
+  <h2>Подключённые</h2>
+
+  {% if not accounts %}
+    <p class="dim">Пока ни одного. Добавьте ключ, чтобы увидеть портфель.</p>
+  {% else %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Биржа</th>
+            <th>Ключ</th>
+            <th>Режим</th>
+            <th>Состояние</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for account, exchange in accounts %}
+          <tr>
+            <td>
+              {{ exchange.name if exchange else '—' }}
+              <div class="dim">{{ account.label }}</div>
+            </td>
+            <td class="mono">{{ account.api_key_masked }}</td>
+            <td>
+              {% if account.allow_trading %}
+                <span class="badge badge-warn">торговля</span>
+              {% else %}
+                <span class="badge">только чтение</span>
+              {% endif %}
+              {% if account.is_testnet %}
+                <span class="badge">testnet</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if account.status == 'ok' %}
+                действителен
+                {% if account.last_sync_at %}
+                  <div class="dim">синхронизация {{ account.last_sync_at.strftime('%d.%m %H:%M') }}</div>
+                {% endif %}
+              {% else %}
+                <span class="text-danger">{{ account.status }}</span>
+                {% if account.last_error %}
+                  <div class="dim">{{ account.last_error[:120] }}</div>
+                {% endif %}
+              {% endif %}
+            </td>
+            <td>
+              <div class="row-actions">
+                <form method="post" action="/settings/keys/{{ account.id }}/recheck">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <button type="submit" class="btn btn-ghost">Проверить</button>
+                </form>
+                <form method="post" action="/settings/keys/{{ account.id }}/delete"
+                      onsubmit="return confirm('Удалить подключение? Балансы и история сделок по нему тоже пропадут.')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <button type="submit" class="btn btn-ghost">Удалить</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+
+<section class="card" style="margin-top: 16px; max-width: 560px">
+  <h2>Добавить ключ</h2>
+
+  <div class="disclaimer">
+    Создавайте ключ <strong>только на чтение</strong>. Права на торговлю
+    нужны исключительно для автотрейдинга, и включать их стоит осознанно,
+    когда до него дойдёт дело. Вывод средств не нужен никогда — такому
+    ключу здесь делать нечего.
+  </div>
+
+  <form method="post" action="/settings/keys">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="field">
+      <label for="exchange_code">Биржа</label>
+      <select id="exchange_code" name="exchange_code" required>
+        {% for exchange in exchanges %}
+          <option value="{{ exchange.code }}">{{ exchange.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="label">Название подключения</label>
+      <input type="text" id="label" name="label" value="main" maxlength="128">
+      <div class="dim">Чтобы различать несколько ключей одной биржи.</div>
+    </div>
+
+    <div class="field">
+      <label for="api_key">API Key</label>
+      <input type="text" id="api_key" name="api_key" autocomplete="off" required>
+    </div>
+
+    <div class="field">
+      <label for="api_secret">API Secret</label>
+      <input type="password" id="api_secret" name="api_secret" autocomplete="off" required>
+      <div class="dim">Хранится в зашифрованном виде, в интерфейсе больше не показывается.</div>
+    </div>
+
+    <label class="check">
+      <input type="checkbox" name="testnet" value="true">
+      <span>Тестовая сеть (testnet)</span>
+    </label>
+
+    <label class="check">
+      <input type="checkbox" name="want_trading" value="true">
+      <span>Разрешить торговлю с этого ключа</span>
+    </label>
+    <div class="dim" style="margin-bottom: 16px">
+      Право включится, только если его подтвердит сама биржа.
+    </div>
+
+    <button type="submit" class="btn btn-primary">Подключить</button>
+  </form>
+</section>
+{% endblock %}

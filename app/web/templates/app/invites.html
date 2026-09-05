@@ -7,10 +7,6 @@
   Регистрация в панели закрытая: аккаунт создаётся только по коду.
 </p>
 
-{% if error %}
-  <div class="flash flash-error" role="alert">{{ error }}</div>
-{% endif %}
-
 <section class="card" style="max-width: 520px">
   <h2>Новое приглашение</h2>
   <form method="post" action="/admin/invites">
