@@ -1,0 +1,32 @@
+# Обратный прокси с автоматическим HTTPS.
+#
+# Caddy сам получает и продлевает сертификат Let's Encrypt для домена из
+# переменной DOMAIN — отдельного certbot и заданий по расписанию не нужно.
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# WebSocket для стакана и ленты сделок проходит тем же маршрутом:
+	# Caddy пробрасывает Upgrade-заголовки без дополнительной настройки.
+	reverse_proxy web:8000 {
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	header {
+		# Панель не должна открываться в чужом фрейме и не должна
+		# угадывать тип содержимого.
+		X-Frame-Options DENY
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		# HSTS включается только когда домен уже работает по https,
+		# иначе откат на http станет невозможен.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
