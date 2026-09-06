@@ -35,6 +35,11 @@
       выдаётся только по закрытой свече: незакрытая ещё может измениться.
       Пары берутся из вашего списка отслеживания.
     </p>
+    <p class="dim" style="margin:8px 0 0">
+      «Воздержаться» — тоже результат: пересечение было, но RSI против
+      входа. В статистику точности такие записи не идут — они ничего не
+      обещают, — и в Telegram не уходят.
+    </p>
   </section>
 </div>
 
@@ -51,9 +56,15 @@
       {% for signal, symbol, timeframe_code in rows %}
       <article class="signal {{ signal.direction }}">
         <div class="signal-head">
-          <span class="signal-badge {{ 'up' if signal.direction == 'buy' else 'down' }}">
-            {{ 'покупка' if signal.direction == 'buy' else 'продажа' }}
-          </span>
+          {# Зелёный и красный только для направления цены; нейтральный
+             вердикт красится акцентом, а не «полукрасным». #}
+          {% if signal.direction == 'buy' %}
+            <span class="signal-badge up">покупка</span>
+          {% elif signal.direction == 'sell' %}
+            <span class="signal-badge down">продажа</span>
+          {% else %}
+            <span class="signal-badge neutral">воздержаться</span>
+          {% endif %}
           <strong>{{ symbol }}</strong>
           <span class="dim">{{ timeframe_code }}</span>
           <span class="num dim">{{ signal.price|amount }}</span>

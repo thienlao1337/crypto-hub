@@ -107,8 +107,8 @@
         {% for signal, symbol, timeframe_code in signals %}
         <article class="signal {{ signal.direction }}">
           <div class="signal-head">
-            <span class="signal-badge {{ 'up' if signal.direction == 'buy' else 'down' }}">
-              {{ 'покупка' if signal.direction == 'buy' else 'продажа' }}
+            <span class="signal-badge {{ 'up' if signal.direction == 'buy' else ('down' if signal.direction == 'sell' else 'neutral') }}">
+              {{ 'покупка' if signal.direction == 'buy' else ('продажа' if signal.direction == 'sell' else 'воздержаться') }}
             </span>
             <strong>{{ symbol }}</strong>
             <span class="dim">{{ timeframe_code }}</span>

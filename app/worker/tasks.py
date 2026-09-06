@@ -34,6 +34,7 @@ from app.models import (
     WatchlistItem,
 )
 from app.models.exchange import KEY_STATUS_ERROR, KEY_STATUS_INVALID
+from app.models.signal import DIRECTION_NEUTRAL
 from app.services import exchange_keys_service as keys_service
 from app.services import (
     alert_service,
@@ -356,7 +357,14 @@ async def _notify_signal(session, rule: SignalRule, signal, symbol: str) -> None
 
     Для общего правила (user_id пуст) адресаты определяются списками
     отслеживания: рассылать всем подряд сигнал по чужой паре незачем.
+
+    Нейтральный вердикт остаётся на экране сигналов и уведомления не
+    порождает: «мы посмотрели и решили не входить» — это не то, ради чего
+    стоит звонить в Telegram среди ночи.
     """
+    if signal.direction == DIRECTION_NEUTRAL:
+        return
+
     if rule.user_id is not None:
         recipients = [rule.user_id]
     else:
@@ -444,6 +452,7 @@ async def _run_strategy(strategy_id: int) -> None:
             .order_by(Signal.created_at)
         )
         signals = list(pending.scalars())
+
         if not signals:
             return
 

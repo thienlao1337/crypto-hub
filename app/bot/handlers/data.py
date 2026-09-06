@@ -148,7 +148,7 @@ async def signals(message: Message, session: AsyncSession, user: User | None) ->
 
     lines = ["<b>Свежие сигналы</b>"]
     for signal, symbol, timeframe_code in rows:
-        word = "покупка" if signal.direction == "buy" else "продажа"
+        word = formatting.direction_word(signal.direction)
         lines.append(
             f"\n<b>{symbol}</b> {timeframe_code} — {word} по "
             f"<code>{formatting.number(signal.price)}</code>\n"

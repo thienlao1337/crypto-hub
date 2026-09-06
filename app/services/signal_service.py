@@ -134,10 +134,17 @@ async def evaluate_rule(
     market: Market,
     timeframe: Timeframe,
 ) -> Signal | None:
-    """Посчитать правило по одной паре и записать сигнал, если он новый."""
+    """Посчитать правило по одной паре и записать сигнал, если он новый.
+
+    Нейтральный вердикт записывается наравне с покупкой и продажей: он
+    возникает не на каждой свече, а только когда пересечение EMA было, но
+    RSI против входа. Это самое содержательное объяснение, какое выдаёт
+    движок, и выбрасывать его — значит показывать пользователю тишину там,
+    где система на самом деле подумала и решила не входить.
+    """
     candles = await candle_service.stored_candles(session, market, timeframe, limit=300)
     decision = analyse(candles, rule.config)
-    if decision is None or decision.direction == DIRECTION_NEUTRAL:
+    if decision is None:
         return None
 
     if await _already_emitted(session, rule.id, market.id, decision.candle_time):
@@ -199,7 +206,11 @@ async def evaluate_outcomes(session: AsyncSession) -> int:
         select(Signal, SignalRule.evaluation_horizon_minutes)
         .join(SignalRule, SignalRule.id == Signal.rule_id)
         .outerjoin(SignalOutcome, SignalOutcome.signal_id == Signal.id)
-        .where(SignalOutcome.id.is_(None))
+        # Нейтральный вердикт ничего не утверждает о направлении, поэтому
+        # и «сбыться» не может: в статистику точности он не идёт. Отсеиваем
+        # его запросом, а не в цикле, иначе такие сигналы вечно занимали бы
+        # окно выборки и вытесняли те, которые надо оценить.
+        .where(SignalOutcome.id.is_(None), Signal.direction != DIRECTION_NEUTRAL)
         .limit(500)
     )
 

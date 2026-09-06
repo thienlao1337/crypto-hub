@@ -324,3 +324,55 @@ async def test_accuracy_counts_only_evaluated(session, rule_setup):
     assert stats["wins"] == 1
     assert stats["win_rate"] == 100.0
     assert stats["avg_pnl_pct"] == 10.0
+
+
+# --- Нейтральный вердикт ---
+
+
+async def test_neutral_verdict_is_stored_too(session, rule_setup):
+    """«Пересечение было, но входить не стоит» — тоже результат.
+
+    Раньше такой вердикт молча выбрасывался, и пользователь видел тишину
+    там, где движок на самом деле подумал и решил не входить.
+    """
+    rule = rule_setup["rule"]
+    rule.config = dict(signal_service.DEFAULT_CONFIG, rsi_overbought=50)
+    await session.flush()
+
+    signal = await signal_service.evaluate_rule(
+        session, rule, rule_setup["market"], rule_setup["timeframe"]
+    )
+    await session.commit()
+
+    assert signal is not None
+    assert signal.direction == DIRECTION_NEUTRAL
+    assert "перекупленности" in signal.reason
+
+
+async def test_neutral_verdict_stays_out_of_accuracy(session, rule_setup):
+    """Он ничего не утверждает о направлении — значит, и «сбыться» не может."""
+    rule = rule_setup["rule"]
+    rule.config = dict(signal_service.DEFAULT_CONFIG, rsi_overbought=50)
+    rule.evaluation_horizon_minutes = 60
+    await session.flush()
+
+    signal = await signal_service.evaluate_rule(
+        session, rule, rule_setup["market"], rule_setup["timeframe"]
+    )
+    signal.candle_time = datetime.now(timezone.utc) - timedelta(hours=3)
+    await session.flush()
+
+    session.add(
+        Candle(
+            market_id=rule_setup["market"].id,
+            timeframe_id=rule_setup["timeframe"].id,
+            open_time=datetime.now(timezone.utc) - timedelta(hours=1),
+            open=Decimal(100), high=Decimal(100), low=Decimal(100),
+            close=Decimal(100), volume=Decimal(1), is_closed=True,
+        )
+    )
+    await session.commit()
+
+    assert await signal_service.evaluate_outcomes(session) == 0
+    stats = await signal_service.accuracy(session)
+    assert stats["total"] == 0

@@ -855,6 +855,17 @@ input::placeholder {
   border-left-color: var(--down);
 }
 
+/* Нейтральный вердикт — не движение цены, поэтому и не зелёный и не
+   красный: акцентный цвет говорит «система смотрела», а не «расти» или
+   «падать». */
+.signal.neutral {
+  border-left-color: var(--accent-2);
+}
+
+.signal-badge.neutral {
+  color: var(--accent-2);
+}
+
 .signal-head {
   display: flex;
   align-items: baseline;

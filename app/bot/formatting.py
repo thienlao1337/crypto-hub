@@ -92,6 +92,15 @@ def percent(value, *, signed: bool = True) -> str:
     return f"{sign}{number_value:.2f}%"
 
 
+def direction_word(direction: str) -> str:
+    """Направление сигнала словом.
+
+    Отдельной функцией, потому что вердиктов три, а не два: подстановка
+    «покупка иначе продажа» превращала бы нейтральный в продажу.
+    """
+    return {"buy": "покупка", "sell": "продажа"}.get(direction, "воздержаться")
+
+
 def arrow(value) -> str:
     """Стрелка вместо цвета: в Telegram разметки цветом нет."""
     if value is None:
