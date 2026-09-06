@@ -32,7 +32,12 @@ def upgrade() -> None:
         sa.Column('label', sa.String(length=255), nullable=True),
         sa.Column('last_error', sa.Text(), nullable=True),
         sa.Column('last_used_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+        sa.Column(
+            'created_at',
+            sa.DateTime(timezone=True),
+            server_default=sa.text('now()'),
+            nullable=False,
+        ),
         sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('endpoint'),
@@ -44,8 +49,9 @@ def upgrade() -> None:
         'notifications',
         sa.Column('delivered_push', sa.Boolean(), nullable=False, server_default=sa.true()),
     )
-    # Дальше значение проставляет приложение — новым записям нужен false.
-    op.alter_column('notifications', 'delivered_push', server_default=sa.false())
+    # Значение по умолчанию нужно было только для заполнения старых строк:
+    # дальше его проставляет приложение, как и у delivered_telegram.
+    op.alter_column('notifications', 'delivered_push', server_default=None)
 
 
 def downgrade() -> None:

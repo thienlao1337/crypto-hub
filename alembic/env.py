@@ -15,6 +15,13 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+# Без этих двух флагов автогенерация сравнивает только наличие столбцов и
+# их обязательность: расхождение в типе (Numeric(20, 8) против
+# Numeric(30, 2)) или в значении по умолчанию она молча пропустит. Для
+# проекта, который считает деньги, тихое расхождение схемы с моделями —
+# худший вид ошибки.
+COMPARE_OPTIONS = {"compare_type": True, "compare_server_default": True}
+
 settings = get_settings()
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
@@ -26,13 +33,16 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        **COMPARE_OPTIONS,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def do_run_migrations(connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection, target_metadata=target_metadata, **COMPARE_OPTIONS
+    )
     with context.begin_transaction():
         context.run_migrations()
 
