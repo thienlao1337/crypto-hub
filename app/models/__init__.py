@@ -23,6 +23,12 @@ from app.models.market import (
     MarketTicker,
     Timeframe,
 )
+from app.models.p2p import (
+    P2PAd,
+    P2POrder,
+    P2PPriceEvent,
+    P2PPriceRule,
+)
 from app.models.portfolio import (
     Balance,
     PortfolioSnapshot,
@@ -70,6 +76,11 @@ __all__ = [
     "Notification",
     "NotificationSetting",
     "PushSubscription",
+    # p2p
+    "P2PAd",
+    "P2PPriceRule",
+    "P2PPriceEvent",
+    "P2POrder",
     # trading
     "Strategy",
     "BotOrder",

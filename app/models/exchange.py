@@ -65,6 +65,13 @@ class ExchangeAccount(Base):
     requested_trading: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     allow_trading: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    # То же самое для P2P: у обеих бирж эти эндпоинты закрыты, пока
+    # аккаунт не получил статус мерчанта или рекламодателя. Права
+    # разные, поэтому и флаги отдельные: ключ с правом торговли на споте
+    # к объявлениям доступа не даёт.
+    requested_p2p: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    allow_p2p: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     status: Mapped[str] = mapped_column(String(32), default=KEY_STATUS_PENDING, nullable=False)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -81,3 +88,7 @@ class ExchangeAccount(Base):
     @property
     def can_trade(self) -> bool:
         return self.allow_trading and self.requested_trading and self.status == KEY_STATUS_OK
+
+    @property
+    def can_p2p(self) -> bool:
+        return self.allow_p2p and self.requested_p2p and self.status == KEY_STATUS_OK
