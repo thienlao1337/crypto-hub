@@ -9,13 +9,14 @@ session.rollback() нельзя обращаться к загруженным �
 from decimal import Decimal
 
 import httpx
+import pyotp
 import pytest_asyncio
 from sqlalchemy import select
 
 from app.db import get_session
 from app.exchanges.base import KeyCheck
 from app.models import AlertType, Exchange, MarketTicker, User
-from app.services import alert_service, market_service
+from app.services import alert_service, invite_service, market_service
 from app.services import exchange_keys_service as keys_service
 from app.services import notification_service, user_service
 from app.web.main import app
@@ -411,3 +412,184 @@ async def test_portfolio_sync_rejects_forged_request(logged_in):
     response = await logged_in.post("/portfolio/sync", data={"csrf_token": "чужой"})
 
     assert response.status_code == 400
+
+
+# --- Регистрация по приглашению ---
+
+
+async def test_registration_by_invite_logs_the_user_in(logged_in, session):
+    """Путь нового пользователя целиком: код → форма → он внутри."""
+    owner = await session.scalar(select(User).where(User.email == "owner@example.com"))
+    invite = await invite_service.create_invite(session, created_by=owner)
+    code = invite.code
+    await session.commit()
+
+    # За токеном идём на страницу панели: /login вошедшего разворачивает,
+    # и брать разметку было бы неоткуда.
+    page = await logged_in.get("/")
+    await logged_in.post("/logout", data={"csrf_token": _csrf(page.text)})
+
+    form = await logged_in.get(f"/register?code={code}")
+    assert form.status_code == 200
+
+    response = await logged_in.post(
+        "/register",
+        data={
+            "code": code,
+            "email": "newcomer@example.com",
+            "password": "newcomer-password-1",
+            "password_repeat": "newcomer-password-1",
+            "csrf_token": _csrf(form.text),
+        },
+    )
+
+    assert response.status_code == 303, response.text[:400]
+    assert response.headers["location"] == "/"
+
+    dashboard = await logged_in.get("/")
+    assert dashboard.status_code == 200
+
+
+async def test_registration_without_invite_is_refused(client, session):
+    """Регистрация закрытая: без кода внутрь попасть нельзя."""
+    session.add(Exchange(code="bybit", name="Bybit", sort_order=10))
+    await session.commit()
+
+    form = await client.get("/register")
+    response = await client.post(
+        "/register",
+        data={
+            "code": "выдуманный-код",
+            "email": "stranger@example.com",
+            "password": "stranger-password-1",
+            "password_repeat": "stranger-password-1",
+            "csrf_token": _csrf(form.text),
+        },
+    )
+
+    assert response.status_code == 400
+    assert await session.scalar(
+        select(User).where(User.email == "stranger@example.com")
+    ) is None
+
+
+async def test_invite_cannot_be_used_twice(logged_in, session):
+    """Иначе одна утёкшая ссылка открывает панель кому угодно."""
+    owner = await session.scalar(select(User).where(User.email == "owner@example.com"))
+    invite = await invite_service.create_invite(session, created_by=owner)
+    code = invite.code
+    await session.commit()
+
+    page = await logged_in.get("/")
+    await logged_in.post("/logout", data={"csrf_token": _csrf(page.text)})
+
+    async def register(email: str):
+        form = await logged_in.get("/register")
+        return await logged_in.post(
+            "/register",
+            data={
+                "code": code,
+                "email": email,
+                "password": "some-password-12",
+                "password_repeat": "some-password-12",
+                "csrf_token": _csrf(form.text),
+            },
+        )
+
+    assert (await register("first@example.com")).status_code == 303
+
+    page = await logged_in.get("/")
+    await logged_in.post("/logout", data={"csrf_token": _csrf(page.text)})
+
+    assert (await register("second@example.com")).status_code == 400
+
+
+# --- Вход со вторым фактором ---
+
+
+@pytest_asyncio.fixture
+async def with_totp(logged_in, session):
+    """Владелец с включённой 2FA и его секретом."""
+    user = await session.scalar(select(User).where(User.email == "owner@example.com"))
+    secret, _ = user_service.begin_totp_setup(user)
+    await user_service.confirm_totp(
+        session, user, secret=secret, code=pyotp.TOTP(secret).now()
+    )
+    await session.commit()
+
+    page = await logged_in.get("/")
+    await logged_in.post("/logout", data={"csrf_token": _csrf(page.text)})
+    return secret
+
+
+async def test_password_alone_does_not_open_the_panel(logged_in, with_totp):
+    page = await logged_in.get("/login")
+    response = await logged_in.post(
+        "/login",
+        data={
+            "email": "owner@example.com",
+            "password": PASSWORD,
+            "csrf_token": _csrf(page.text),
+        },
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login/2fa"
+
+    # Пока код не введён, внутрь пускать нельзя.
+    dashboard = await logged_in.get("/")
+    assert dashboard.status_code == 303
+
+
+async def test_correct_code_completes_login(logged_in, with_totp):
+    page = await logged_in.get("/login")
+    await logged_in.post(
+        "/login",
+        data={
+            "email": "owner@example.com",
+            "password": PASSWORD,
+            "csrf_token": _csrf(page.text),
+        },
+    )
+
+    form = await logged_in.get("/login/2fa")
+    response = await logged_in.post(
+        "/login/2fa",
+        data={"code": pyotp.TOTP(with_totp).now(), "csrf_token": _csrf(form.text)},
+    )
+
+    assert response.status_code == 303
+    assert (await logged_in.get("/")).status_code == 200
+
+
+async def test_wrong_code_keeps_the_door_shut(logged_in, with_totp):
+    page = await logged_in.get("/login")
+    await logged_in.post(
+        "/login",
+        data={
+            "email": "owner@example.com",
+            "password": PASSWORD,
+            "csrf_token": _csrf(page.text),
+        },
+    )
+
+    form = await logged_in.get("/login/2fa")
+    response = await logged_in.post(
+        "/login/2fa",
+        data={"code": "000000", "csrf_token": _csrf(form.text)},
+    )
+
+    assert response.status_code == 401
+    assert (await logged_in.get("/")).status_code == 303
+
+
+async def test_second_factor_page_needs_a_started_login(client, session):
+    """Открыть шаг 2FA напрямую, не введя пароль, нельзя."""
+    session.add(Exchange(code="bybit", name="Bybit", sort_order=10))
+    await user_service.create_user(session, email="owner@example.com", password=PASSWORD)
+    await session.commit()
+
+    response = await client.get("/login/2fa")
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
