@@ -2,6 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Date,
     DateTime,
@@ -59,6 +60,14 @@ class Strategy(Base):
     daily_loss_limit_pct: Mapped[Decimal] = mapped_column(Pct, nullable=False)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Отметка «сигналы до этого номера уже рассмотрены». Без неё каждый
+    # проход фонового процесса заново разбирает те же сигналы и пишет в
+    # журнал те же отказы — за полчаса набегает три десятка одинаковых
+    # строк, и единственная важная теряется среди них. Это водяной знак,
+    # а не ссылка, поэтому без внешнего ключа: удаление старого сигнала
+    # не должно заставлять стратегию всё переосмысливать.
+    last_signal_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     live_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

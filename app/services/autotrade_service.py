@@ -406,6 +406,16 @@ def position_pnl(order: BotOrder, exit_price: Decimal) -> tuple[Decimal, Decimal
     return pnl_usd, pnl_pct
 
 
+def mark_considered(strategy: Strategy, signal: Signal) -> None:
+    """Запомнить, что этот сигнал уже разобран.
+
+    Отметка только растёт: сигналы приходят по возрастанию номера, и
+    откат назад означал бы повторный разбор старого.
+    """
+    if strategy.last_signal_id is None or signal.id > strategy.last_signal_id:
+        strategy.last_signal_id = signal.id
+
+
 async def open_position(session: AsyncSession, strategy: Strategy) -> BotOrder | None:
     """Незакрытая позиция стратегии, если она есть."""
     result = await session.execute(
@@ -442,6 +452,11 @@ async def execute(
 
     if not strategy.is_active:
         return None
+
+    # Дальше любая ветка что-нибудь пишет в журнал про этот сигнал, и
+    # рассмотреть его надо ровно один раз: иначе следующий проход
+    # повторит ту же запись, и так все полчаса, пока сигнал свежий.
+    mark_considered(strategy, signal)
 
     state = await risk_state(session, strategy)
     if state.is_halted:

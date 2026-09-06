@@ -11,12 +11,17 @@ import signal
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.config import get_settings, verify_deployment
-from app.worker import delivery, tasks
+from app.worker import delivery, retention, tasks
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
 )
+# APScheduler на каждый запуск пишет две строки INFO, а задач у нас
+# больше десятка и самая частая ходит раз в пятнадцать секунд: получается
+# около семнадцати тысяч строк в сутки, среди которых не найти настоящую
+# ошибку. Свои сообщения остаются на INFO.
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
 logger = logging.getLogger("worker")
 settings = get_settings()
 
@@ -112,6 +117,15 @@ def build_scheduler() -> AsyncIOScheduler:
         "interval",
         minutes=15,
         id="evaluate_signal_outcomes",
+    )
+    # Раз в сутки и в тихий час: удаление затрагивает большие таблицы, и
+    # делать это одновременно с синхронизацией бирж незачем.
+    scheduler.add_job(
+        retention.cleanup,
+        "cron",
+        hour=3,
+        minute=20,
+        id="cleanup_old_data",
     )
     return scheduler
 

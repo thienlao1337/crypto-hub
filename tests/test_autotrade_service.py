@@ -872,3 +872,72 @@ async def test_close_falls_back_to_full_amount_when_balance_unknown(session, set
 
     assert closed is not None
     assert blind.orders[0][2] == order.amount
+
+
+async def test_signal_is_considered_once(session, setup):
+    """Иначе каждый проход пишет в журнал тот же отказ.
+
+    Сигнал остаётся свежим полчаса, фоновый процесс ходит раз в минуту —
+    получалось три десятка одинаковых строк, и единственная важная
+    терялась среди них.
+    """
+    strategy = setup["strategy"]
+    strategy.is_active = True
+    await session.flush()
+
+    signal = make_signal(setup, direction="sell")  # отказ гарантирован
+    session.add(signal)
+    await session.flush()
+
+    for _ in range(3):
+        await auto.execute(session, strategy, signal)
+    await session.commit()
+
+    entries = (await session.execute(select(BotJournalEntry))).scalars().all()
+    refusals = [e for e in entries if e.event_type == auto.EVENT_SKIPPED]
+    assert len(refusals) == 3, "сам по себе execute не дедуплицирует"
+
+    # А отметка о разборе выставлена — по ней выборка и отсекает повтор.
+    assert strategy.last_signal_id == signal.id
+
+
+async def test_watermark_only_moves_forward(session, setup):
+    """Откат назад заставил бы разбирать старое заново."""
+    strategy = setup["strategy"]
+    strategy.last_signal_id = 100
+
+    auto.mark_considered(strategy, type("S", (), {"id": 50})())
+    assert strategy.last_signal_id == 100
+
+    auto.mark_considered(strategy, type("S", (), {"id": 150})())
+    assert strategy.last_signal_id == 150
+
+
+async def test_worker_does_not_reconsider_the_same_signal(session, setup, monkeypatch):
+    """Проверка самого исправления: повторного разбора быть не должно."""
+    from contextlib import asynccontextmanager
+
+    from app.worker import tasks
+
+    @asynccontextmanager
+    async def scope():
+        yield session
+
+    monkeypatch.setattr(tasks, "session_scope", scope)
+    monkeypatch.setattr(tasks.get_settings(), "autotrade_enabled", True, raising=False)
+
+    strategy = setup["strategy"]
+    strategy.is_active = True
+    await session.flush()
+
+    signal = make_signal(setup, direction="sell")
+    session.add(signal)
+    await session.commit()
+
+    for _ in range(3):
+        await tasks._run_strategy(strategy.id)
+
+    entries = (await session.execute(select(BotJournalEntry))).scalars().all()
+    refusals = [e for e in entries if e.event_type == auto.EVENT_SKIPPED]
+
+    assert len(refusals) == 1, "три прохода фонового процесса — одна запись"

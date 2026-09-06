@@ -69,6 +69,16 @@ class Settings(BaseSettings):
     # demo-ключ бесплатный и поднимает лимит. Пусто — работаем без ключа.
     coingecko_api_key: str = ""
 
+    # --- Хранение данных ---
+    # Свечей оставляем по столько на каждую пару и таймфрейм. Читаются
+    # всегда последние несколько сотен: и индикаторам, и графику больше
+    # не нужно, а пишутся они непрерывно.
+    candles_keep_per_series: int = 1500
+    # Ноль в любом из трёх — «не удалять».
+    login_events_keep_days: int = 180
+    notifications_keep_days: int = 90
+    global_stats_keep_days: int = 365
+
     # --- Интервалы фоновых задач, секунды ---
     sync_balances_interval: int = 60
     sync_trades_interval: int = 300

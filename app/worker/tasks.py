@@ -22,7 +22,6 @@ from app.db import session_scope
 from app.exchanges.ccxt_client import CcxtAdapter
 from app.models import (
     Alert,
-    BotOrder,
     Exchange,
     ExchangeAccount,
     Market,
@@ -437,20 +436,18 @@ async def _run_strategy(strategy_id: int) -> None:
             return
 
         since = datetime.now(timezone.utc) - SIGNAL_MAX_AGE
-        pending = await session.execute(
-            select(Signal)
-            .outerjoin(
-                BotOrder,
-                (BotOrder.signal_id == Signal.id) & (BotOrder.strategy_id == strategy.id),
-            )
-            .where(
-                Signal.rule_id == strategy.signal_rule_id,
-                Signal.market_id == strategy.market_id,
-                Signal.created_at >= since,
-                BotOrder.id.is_(None),
-            )
-            .order_by(Signal.created_at)
+        query = select(Signal).where(
+            Signal.rule_id == strategy.signal_rule_id,
+            Signal.market_id == strategy.market_id,
+            Signal.created_at >= since,
         )
+        # Берём только то, что стратегия ещё не разбирала. Раньше отбор шёл
+        # по отсутствию ордера, и сигнал, на котором она отказалась
+        # действовать, попадал в выборку снова на каждом проходе.
+        if strategy.last_signal_id is not None:
+            query = query.where(Signal.id > strategy.last_signal_id)
+
+        pending = await session.execute(query.order_by(Signal.id))
         signals = list(pending.scalars())
 
         # Выход проверяем в любом случае, даже когда новых сигналов нет:
