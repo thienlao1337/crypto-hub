@@ -453,7 +453,10 @@ async def _run_strategy(strategy_id: int) -> None:
         )
         signals = list(pending.scalars())
 
-        if not signals:
+        # Выход проверяем в любом случае, даже когда новых сигналов нет:
+        # стоп-лосс на то и стоп, что срабатывает сам, а не по сигналу.
+        position = await autotrade_service.open_position(session, strategy)
+        if not signals and position is None:
             return
 
         adapter = None
@@ -462,6 +465,13 @@ async def _run_strategy(strategy_id: int) -> None:
             adapter = await keys_service.build_adapter(session, account)
 
         try:
+            closed = await autotrade_service.check_exits(session, strategy, adapter=adapter)
+            if closed is not None:
+                logger.info(
+                    "Стратегия %s: позиция закрыта по уровню, результат %s",
+                    strategy.id, closed.realized_pnl,
+                )
+
             for signal in signals:
                 order = await autotrade_service.execute(
                     session, strategy, signal, adapter=adapter

@@ -105,6 +105,10 @@ class BotOrder(Base):
 
     stop_loss: Mapped[Decimal | None] = mapped_column(Price, nullable=True)
     take_profit: Mapped[Decimal | None] = mapped_column(Price, nullable=True)
+    # Цена выхода и результат заполняются при закрытии позиции. Строка
+    # одна на позицию целиком: вход и выход двумя записями пришлось бы
+    # сшивать обратно при каждом показе.
+    close_price: Mapped[Decimal | None] = mapped_column(Price, nullable=True)
     realized_pnl: Mapped[Decimal | None] = mapped_column(Usd, nullable=True)
 
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

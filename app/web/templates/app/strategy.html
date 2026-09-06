@@ -1,6 +1,16 @@
 {% extends "app/base.html" %}
 {% block title %}{{ strategy.name }} — Crypto Hub{% endblock %}
 
+{# Статусы ордера: наши — по-русски, чужие (пришедшие от биржи)
+   показываем как есть, выдумывать перевод для них нечестно. #}
+{% set order_statuses = {
+  'new': 'выставлен',
+  'filled': 'открыта',
+  'closed': 'закрыта',
+  'canceled': 'отменён',
+  'rejected': 'отклонён'
+} %}
+
 {% block app_content %}
 <div class="page-head">
   <div>
@@ -60,6 +70,10 @@
 
   <section class="card">
     <h2>Настройки</h2>
+    <p class="dim" style="margin-top:0">
+      Стратегия держит не больше одной позиции: покупка открывает,
+      продажа или уровень выхода закрывает.
+    </p>
     <div class="stat-row"><span class="dim">размер позиции</span>
       <span class="num">{{ strategy.position_size_pct|pct(1) }}</span></div>
     <div class="stat-row"><span class="dim">максимум на сделку</span>
@@ -113,8 +127,10 @@
             <th>Режим</th>
             <th>Сторона</th>
             <th class="right">Объём</th>
-            <th class="right">Цена</th>
+            <th class="right">Вход</th>
             <th class="right">Стоп / тейк</th>
+            <th class="right">Выход</th>
+            <th class="right">Результат</th>
             <th>Статус</th>
           </tr>
         </thead>
@@ -127,11 +143,25 @@
               {{ 'покупка' if order.side == 'buy' else 'продажа' }}
             </td>
             <td class="num right">{{ order.amount|amount }}</td>
-            <td class="num right">{{ order.price|amount }}</td>
+            <td class="num right">{{ order.price|amount(2) }}</td>
             <td class="num right dim">
               {{ order.stop_loss|amount(2) }} / {{ order.take_profit|amount(2) }}
             </td>
-            <td class="dim">{{ order.status }}</td>
+            <td class="num right">
+              {% if order.close_price is none %}
+                <span class="dim">открыта</span>
+              {% else %}{{ order.close_price|amount(2) }}{% endif %}
+            </td>
+            <td class="num right">
+              {% if order.realized_pnl is none %}
+                <span class="dim">—</span>
+              {% else %}
+                <span class="{{ 'up' if order.realized_pnl >= 0 else 'down' }}">
+                  {{ order.realized_pnl|usd(signed=True) }}
+                </span>
+              {% endif %}
+            </td>
+            <td class="dim">{{ order_statuses.get(order.status, order.status) }}</td>
           </tr>
           {% endfor %}
         </tbody>

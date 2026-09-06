@@ -235,9 +235,10 @@ def test_position_size_uses_share_of_equity(setup=None):
     decision = auto.decide(
         strategy=strategy, signal=signal,
         equity_usd=Decimal(10_000), price=Decimal(80_000),
+        has_open_position=False,
     )
 
-    assert decision.action == "order"
+    assert decision.action == "open"
     # 10% от 10 000 = 1 000 USD, при цене 80 000 это 0.0125 BTC.
     assert decision.amount == Decimal("0.0125")
 
@@ -253,6 +254,7 @@ def test_position_size_capped_by_max_per_trade():
     decision = auto.decide(
         strategy=strategy, signal=signal,
         equity_usd=Decimal(10_000), price=Decimal(100),
+        has_open_position=False,
     )
 
     assert decision.amount == Decimal(5), "5% от 10 000 при цене 100"
@@ -265,10 +267,12 @@ def test_no_order_without_equity_or_price():
     signal = type("Sig", (), {"direction": "buy"})()
 
     assert auto.decide(
-        strategy=strategy, signal=signal, equity_usd=Decimal(0), price=Decimal(100)
+        strategy=strategy, signal=signal, equity_usd=Decimal(0), price=Decimal(100),
+        has_open_position=False,
     ).action == "skip"
     assert auto.decide(
-        strategy=strategy, signal=signal, equity_usd=Decimal(100), price=Decimal(0)
+        strategy=strategy, signal=signal, equity_usd=Decimal(100), price=Decimal(0),
+        has_open_position=False,
     ).action == "skip"
 
 
@@ -403,7 +407,11 @@ async def test_order_reaches_exchange_in_testnet(session, setup):
     await session.commit()
 
     assert adapter.calls == [("BTC/USDT", "buy", Decimal("0.0125"))]
-    assert order.external_id == "ex-1"
+    # Именно колонка, а не одноимённый атрибут: присваивание чужого имени
+    # ORM молча проглатывает, и id ордера с биржи не сохранялся.
+    assert order.external_order_id == "ex-1"
+    reloaded = await session.get(BotOrder, order.id)
+    assert reloaded.external_order_id == "ex-1"
     assert order.mode == MODE_TESTNET
     # Цена берётся фактическая, а не расчётная.
     assert order.price == Decimal(80_010)
@@ -487,3 +495,243 @@ async def test_other_users_strategy_is_not_accessible(session, setup):
 
     with pytest.raises(auto.AutotradeError):
         await auto.get_strategy(session, stranger, setup["strategy"].id)
+
+
+# --- Жизненный цикл позиции ---
+
+
+def make_order(price: str, amount: str, *, stop: str | None = None, take: str | None = None):
+    return type("O", (), {
+        "price": Decimal(price),
+        "amount": Decimal(amount),
+        "stop_loss": Decimal(stop) if stop else None,
+        "take_profit": Decimal(take) if take else None,
+        "side": "buy",
+    })()
+
+
+def test_stop_loss_wins_when_both_levels_touched():
+    """Порядок событий внутри интервала неизвестен — считаем по худшему."""
+    order = make_order("100", "1", stop="98", take="104")
+
+    assert auto.exit_reason(order, Decimal(97)) == auto.EXIT_STOP_LOSS
+    assert auto.exit_reason(order, Decimal(105)) == auto.EXIT_TAKE_PROFIT
+    assert auto.exit_reason(order, Decimal(100)) is None
+
+
+def test_exit_ignores_missing_levels():
+    order = make_order("100", "1")
+    assert auto.exit_reason(order, Decimal(1)) is None
+    assert auto.exit_reason(order, Decimal(10_000)) is None
+
+
+def test_position_pnl_counts_both_ways():
+    order = make_order("100", "2")
+
+    usd, pct = auto.position_pnl(order, Decimal(110))
+    assert usd == Decimal(20)
+    assert pct == Decimal(10)
+
+    usd, pct = auto.position_pnl(order, Decimal(90))
+    assert usd == Decimal(-20)
+    assert pct == Decimal(-10)
+
+
+def test_second_buy_does_not_stack_position():
+    strategy = type("S", (), {
+        "position_size_pct": Decimal(10), "max_pct_per_trade": Decimal(20),
+    })()
+    signal = type("Sig", (), {"direction": "buy", "reason": "проверка"})()
+
+    decision = auto.decide(
+        strategy=strategy, signal=signal, equity_usd=Decimal(10_000),
+        price=Decimal(100), has_open_position=True,
+    )
+    assert decision.action == "skip"
+
+
+def test_sell_without_position_is_refused():
+    """На споте это была бы продажа монет самого пользователя."""
+    strategy = type("S", (), {
+        "position_size_pct": Decimal(10), "max_pct_per_trade": Decimal(20),
+    })()
+    signal = type("Sig", (), {"direction": "sell", "reason": "проверка"})()
+
+    decision = auto.decide(
+        strategy=strategy, signal=signal, equity_usd=Decimal(10_000),
+        price=Decimal(100), has_open_position=False,
+    )
+    assert decision.action == "skip"
+
+
+def test_sell_with_position_closes_it():
+    strategy = type("S", (), {
+        "position_size_pct": Decimal(10), "max_pct_per_trade": Decimal(20),
+    })()
+    signal = type("Sig", (), {"direction": "sell", "reason": "пересечение вниз"})()
+
+    decision = auto.decide(
+        strategy=strategy, signal=signal, equity_usd=Decimal(10_000),
+        price=Decimal(100), has_open_position=True,
+    )
+    assert decision.action == "close"
+
+
+async def test_paper_position_opens_once_and_closes_by_signal(session, setup):
+    strategy = setup["strategy"]
+    strategy.is_active = True
+    await session.flush()
+
+    buy = make_signal(setup)
+    session.add(buy)
+    await session.flush()
+
+    opened = await auto.execute(session, strategy, buy)
+    assert opened is not None
+    assert opened.status == auto.STATUS_OPEN
+
+    # Второй сигнал на покупку не должен набирать позицию заново.
+    another_buy = make_signal(setup)
+    session.add(another_buy)
+    await session.flush()
+    assert await auto.execute(session, strategy, another_buy) is None
+
+    ticker = await session.get(MarketTicker, setup["market"].id)
+    ticker.last = Decimal(88_000)
+    sell = make_signal(setup, direction="sell")
+    session.add(sell)
+    await session.flush()
+
+    closed = await auto.execute(session, strategy, sell)
+    await session.commit()
+
+    assert closed is not None
+    assert closed.id == opened.id, "закрывается та же позиция, а не заводится новая"
+    assert closed.status == auto.STATUS_CLOSED
+    assert closed.close_price == Decimal(88_000)
+    assert closed.closed_at is not None
+    assert closed.realized_pnl > 0
+
+
+async def test_stop_loss_closes_position_without_signal(session, setup):
+    """Стоп-лосс на то и стоп, что срабатывает сам."""
+    strategy = setup["strategy"]
+    strategy.is_active = True
+    await session.flush()
+
+    signal = make_signal(setup)
+    session.add(signal)
+    await session.flush()
+    opened = await auto.execute(session, strategy, signal)
+    assert opened.stop_loss == Decimal(78_400), "стоп 2% от 80 000"
+
+    ticker = await session.get(MarketTicker, setup["market"].id)
+    ticker.last = Decimal(78_000)
+    await session.flush()
+
+    closed = await auto.check_exits(session, strategy)
+    await session.commit()
+
+    assert closed is not None
+    assert closed.realized_pnl < 0
+    assert await auto.open_position(session, strategy) is None
+
+    entries = (await session.execute(select(BotJournalEntry))).scalars().all()
+    assert any(auto.EXIT_STOP_LOSS in entry.message for entry in entries)
+
+
+async def test_take_profit_closes_position(session, setup):
+    strategy = setup["strategy"]
+    strategy.is_active = True
+    await session.flush()
+
+    signal = make_signal(setup)
+    session.add(signal)
+    await session.flush()
+    opened = await auto.execute(session, strategy, signal)
+    assert opened.take_profit == Decimal(83_200), "тейк 4% от 80 000"
+
+    ticker = await session.get(MarketTicker, setup["market"].id)
+    ticker.last = Decimal(84_000)
+    await session.flush()
+
+    closed = await auto.check_exits(session, strategy)
+    await session.commit()
+
+    assert closed is not None
+    assert closed.realized_pnl > 0
+
+
+async def test_check_exits_quiet_while_price_between_levels(session, setup):
+    strategy = setup["strategy"]
+    strategy.is_active = True
+    await session.flush()
+
+    signal = make_signal(setup)
+    session.add(signal)
+    await session.flush()
+    await auto.execute(session, strategy, signal)
+
+    assert await auto.check_exits(session, strategy) is None
+    assert await auto.open_position(session, strategy) is not None
+
+
+async def test_daily_limit_counts_share_of_deposit_not_of_position(session, setup):
+    """Стоп в 2% на позиции в 10% депозита стоит 0.2%, а не 2%.
+
+    Перепутать эти величины значило бы останавливать бота в разы раньше
+    срока — и дневной лимит убытка перестал бы что-либо значить.
+    """
+    strategy = setup["strategy"]
+    strategy.is_active = True
+    await session.flush()
+
+    signal = make_signal(setup)
+    session.add(signal)
+    await session.flush()
+    await auto.execute(session, strategy, signal)
+
+    ticker = await session.get(MarketTicker, setup["market"].id)
+    ticker.last = Decimal(78_400)
+    await session.flush()
+
+    await auto.check_exits(session, strategy)
+    await session.commit()
+
+    state = await auto.risk_state(session, strategy)
+    assert state.trades_count == 1
+    # Позиция — 10% депозита, стоп −2% от неё: около −0.2% депозита.
+    assert Decimal("-0.5") < state.realized_pnl_pct < Decimal(0)
+    assert state.is_halted is False
+
+
+async def test_daily_limit_halts_after_enough_losses(session, setup):
+    """Лимит должен действительно останавливать, а не просто считаться."""
+    strategy = setup["strategy"]
+    strategy.is_active = True
+    await session.flush()
+
+    await auto.register_result(session, strategy, Decimal(-6))
+    await session.commit()
+
+    state = await auto.risk_state(session, strategy)
+    assert state.is_halted is True
+    assert strategy.is_active is False
+
+
+def test_journal_numbers_have_no_zero_tail():
+    """Numeric(36, 18) в тексте журнала читается как сбой, а не как цена."""
+    strategy = type("S", (), {
+        "position_size_pct": Decimal("5.0000"), "max_pct_per_trade": Decimal(20),
+    })()
+    signal = type("Sig", (), {"direction": "buy", "reason": "проверка"})()
+
+    decision = auto.decide(
+        strategy=strategy, signal=signal, equity_usd=Decimal(10_000),
+        price=Decimal("79903.000000000000000000"), has_open_position=False,
+    )
+
+    # Точка в конце предложения — не хвост: проверяем именно нули.
+    assert decision.reason.endswith("по цене 79903.")
+    assert "79903.0" not in decision.reason
+    assert "5%" in decision.reason and "5.0000%" not in decision.reason

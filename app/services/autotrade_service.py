@@ -50,11 +50,23 @@ settings = get_settings()
 EVENT_CONSIDERED = "considered"
 EVENT_SKIPPED = "skipped"
 EVENT_ORDER = "order"
+EVENT_CLOSED = "closed"
 EVENT_ERROR = "error"
 EVENT_HALTED = "halted"
 EVENT_MODE = "mode_changed"
 
 MODES = (MODE_PAPER, MODE_TESTNET, MODE_LIVE)
+
+# Ордер бота описывает позицию целиком: открытие пишет строку, закрытие
+# проставляет ей цену выхода и результат. Держать вход и выход двумя
+# записями значило бы каждый раз сшивать их обратно.
+STATUS_NEW = "new"
+STATUS_OPEN = "filled"
+STATUS_CLOSED = "closed"
+
+EXIT_STOP_LOSS = "стоп-лосс"
+EXIT_TAKE_PROFIT = "тейк-профит"
+EXIT_SIGNAL = "обратный сигнал"
 
 
 class AutotradeError(Exception):
@@ -65,7 +77,7 @@ class AutotradeError(Exception):
 class Decision:
     """Что стратегия решила сделать по сигналу."""
 
-    action: str  # order | skip
+    action: str  # open | close | skip
     reason: str
     side: str | None = None
     amount: Decimal | None = None
@@ -301,16 +313,36 @@ def decide(
     signal: Signal,
     equity_usd: Decimal,
     price: Decimal,
+    has_open_position: bool,
 ) -> Decision:
     """Что делать по сигналу. Чистая функция — её проверяет тест.
+
+    Стратегия работает на споте и держит не больше одной позиции: покупка
+    её открывает, продажа закрывает. Продажа при пустой позиции — это не
+    «шорт», а продажа монет самого пользователя, поэтому она отклоняется.
 
     Размер позиции считается от оценки депозита, а не от свободного
     остатка: иначе после серии сделок объём незаметно уплывает.
     """
-    if signal.direction not in (DIRECTION_BUY, DIRECTION_SELL):
-        return Decision(action="skip", reason="Сигнал без направления.")
     if price <= 0:
         return Decision(action="skip", reason="Нет текущей цены.")
+
+    if signal.direction == DIRECTION_SELL:
+        if not has_open_position:
+            return Decision(
+                action="skip",
+                reason="Продавать нечего: открытой позиции нет, а шорт на споте невозможен.",
+            )
+        return Decision(action="close", reason=f"Закрытие по сигналу: {signal.reason}")
+
+    if signal.direction != DIRECTION_BUY:
+        return Decision(action="skip", reason="Сигнал без направления.")
+
+    if has_open_position:
+        return Decision(
+            action="skip",
+            reason="Позиция уже открыта — вторую по тому же сигналу не набираем.",
+        )
     if equity_usd <= 0:
         return Decision(action="skip", reason="Оценка депозита нулевая.")
 
@@ -322,14 +354,57 @@ def decide(
         return Decision(action="skip", reason="Расчётный объём нулевой.")
 
     return Decision(
-        action="order",
+        action="open",
         reason=(
-            f"Сигнал {signal.direction}: {share}% депозита "
-            f"({notional.quantize(Decimal('0.01'))} USD) по цене {price}."
+            f"Сигнал {signal.direction}: {_num(share)}% депозита "
+            f"({notional.quantize(Decimal('0.01'))} USD) по цене {_num(price)}."
         ),
         side=signal.direction,
         amount=amount,
     )
+
+
+def exit_reason(order: BotOrder, price: Decimal) -> str | None:
+    """Достигнут ли уровень выхода. Чистая функция.
+
+    Стоп проверяется раньше тейка: если внутри одного интервала цена
+    успела задеть оба уровня, порядок событий нам неизвестен, и считать
+    надо по худшему. Обратное допущение делало бы отчётность стратегии
+    приятнее реальности.
+    """
+    if price is None or price <= 0:
+        return None
+    if order.stop_loss is not None and price <= order.stop_loss:
+        return EXIT_STOP_LOSS
+    if order.take_profit is not None and price >= order.take_profit:
+        return EXIT_TAKE_PROFIT
+    return None
+
+
+def position_pnl(order: BotOrder, exit_price: Decimal) -> tuple[Decimal, Decimal]:
+    """Результат позиции: в долларах и в процентах от вложенного."""
+    entry = order.price or Decimal(0)
+    if entry <= 0:
+        return Decimal(0), Decimal(0)
+
+    pnl_usd = (exit_price - entry) * order.amount
+    pnl_pct = (exit_price - entry) / entry * Decimal(100)
+    return pnl_usd, pnl_pct
+
+
+async def open_position(session: AsyncSession, strategy: Strategy) -> BotOrder | None:
+    """Незакрытая позиция стратегии, если она есть."""
+    result = await session.execute(
+        select(BotOrder)
+        .where(
+            BotOrder.strategy_id == strategy.id,
+            BotOrder.closed_at.is_(None),
+            BotOrder.status != STATUS_CLOSED,
+        )
+        .order_by(BotOrder.id.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 async def execute(
@@ -370,11 +445,22 @@ async def execute(
 
     user = await session.get(User, strategy.user_id)
     summary = await portfolio_service.build_summary(session, user)
+    position = await open_position(session, strategy)
 
     decision = decide(
-        strategy=strategy, signal=signal, equity_usd=summary.total_usd, price=price
+        strategy=strategy,
+        signal=signal,
+        equity_usd=summary.total_usd,
+        price=price,
+        has_open_position=position is not None,
     )
-    if decision.action != "order":
+
+    if decision.action == "close":
+        return await close_position(
+            session, strategy, position, price, decision.reason, adapter=adapter
+        )
+
+    if decision.action != "open":
         await journal(session, strategy, EVENT_SKIPPED, decision.reason)
         return None
 
@@ -388,7 +474,7 @@ async def execute(
         side=decision.side,
         amount=decision.amount,
         price=price,
-        status="filled" if strategy.mode == MODE_PAPER else "new",
+        status=STATUS_OPEN if strategy.mode == MODE_PAPER else STATUS_NEW,
         stop_loss=_level(price, strategy.stop_loss_pct, decision.side, stop=True),
         take_profit=_level(price, strategy.take_profit_pct, decision.side, stop=False),
     )
@@ -417,7 +503,7 @@ async def execute(
         await session.flush()
         return None
 
-    order.external_id = result.external_id
+    order.external_order_id = result.external_id
     order.status = result.status
     order.price = result.average_price or price
     order.raw = result.raw or None
@@ -428,6 +514,103 @@ async def execute(
         f"Ордер на бирже ({strategy.mode}): {decision.reason}",
         payload={"external_id": result.external_id, "status": result.status},
     )
+    await session.flush()
+    return order
+
+
+async def check_exits(
+    session: AsyncSession,
+    strategy: Strategy,
+    *,
+    adapter: ExchangeAdapter | None = None,
+) -> BotOrder | None:
+    """Закрыть позицию, если цена дошла до стопа или тейка.
+
+    Вызывается каждым проходом, а не только при новом сигнале: уровни
+    выхода на то и уровни, что срабатывают сами по себе. Без этой
+    проверки стоп-лосс был бы числом в базе, а не защитой.
+    """
+    position = await open_position(session, strategy)
+    if position is None:
+        return None
+
+    ticker = await market_service.get_ticker(session, strategy.market_id)
+    price = ticker.last if ticker else None
+    if price is None:
+        return None
+
+    reason = exit_reason(position, price)
+    if reason is None:
+        return None
+
+    return await close_position(
+        session, strategy, position, price, f"Сработал {reason}.", adapter=adapter
+    )
+
+
+async def close_position(
+    session: AsyncSession,
+    strategy: Strategy,
+    order: BotOrder,
+    price: Decimal,
+    reason: str,
+    *,
+    adapter: ExchangeAdapter | None = None,
+) -> BotOrder | None:
+    """Закрыть позицию и учесть результат в дневном лимите.
+
+    Результат считается в процентах от депозита, а не от самой позиции:
+    дневной лимит убытка в ТЗ — доля депозита, и стоп в 2% на позиции
+    размером в 5% депозита стоит 0.1%, а не 2%. Перепутать эти величины
+    значило бы останавливать бота в двадцать раз раньше срока.
+    """
+    if order is None:
+        return None
+
+    if strategy.mode != MODE_PAPER:
+        if adapter is None:
+            await journal(
+                session, strategy, EVENT_ERROR,
+                "Нет подключения к бирже — позиция не закрыта.",
+            )
+            return None
+
+        market = await session.get(Market, strategy.market_id)
+        opposite = DIRECTION_SELL if order.side == DIRECTION_BUY else DIRECTION_BUY
+        try:
+            result = await adapter.create_market_order(market.symbol, opposite, order.amount)
+        except Exception as exc:
+            await journal(session, strategy, EVENT_ERROR, f"Биржа отклонила закрытие: {exc}")
+            await session.flush()
+            return None
+        price = result.average_price or price
+
+    pnl_usd, pnl_pct = position_pnl(order, price)
+
+    order.close_price = price
+    order.realized_pnl = pnl_usd
+    order.closed_at = datetime.now(timezone.utc)
+    order.status = STATUS_CLOSED
+
+    user = await session.get(User, strategy.user_id)
+    summary = await portfolio_service.build_summary(session, user)
+    equity = summary.total_usd
+    pnl_of_equity = (pnl_usd / equity * Decimal(100)) if equity > 0 else Decimal(0)
+
+    await journal(
+        session, strategy, EVENT_CLOSED,
+        f"{reason} Выход по {_num(price)}, результат "
+        f"{pnl_usd.quantize(Decimal('0.01'))} USD "
+        f"({pnl_pct.quantize(Decimal('0.01'))}% позиции).",
+        payload={
+            "order_id": order.id,
+            "exit_price": str(price),
+            "pnl_usd": str(pnl_usd),
+            "pnl_pct": str(pnl_pct),
+        },
+    )
+
+    await register_result(session, strategy, pnl_of_equity)
     await session.flush()
     return order
 
@@ -479,6 +662,17 @@ async def recent_orders(
         .limit(limit)
     )
     return list(result.scalars())
+
+
+def _num(value: Decimal | None) -> str:
+    """Число в сообщении журнала без хвоста нулей.
+
+    Numeric(36, 18) возвращает 79903.000000000000000000, и в журнале это
+    читается как сбой, а не как цена.
+    """
+    if value is None:
+        return "—"
+    return format(value.normalize(), "f")
 
 
 def _level(
