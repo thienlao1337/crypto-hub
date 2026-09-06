@@ -735,3 +735,140 @@ def test_journal_numbers_have_no_zero_tail():
     assert decision.reason.endswith("по цене 79903.")
     assert "79903.0" not in decision.reason
     assert "5%" in decision.reason and "5.0000%" not in decision.reason
+
+
+# --- Живой путь: объём, минимальный лот и остаток на балансе ---
+
+
+def test_amount_below_exchange_minimum_is_refused():
+    """Такая сделка не состоялась бы и на бирже — значит, и в бумажной.
+
+    Записать её в бумажный результат значило бы обещать прибыль, которой
+    не будет.
+    """
+    strategy = type("S", (), {
+        "position_size_pct": Decimal("0.1"), "max_pct_per_trade": Decimal(20),
+    })()
+    signal = type("Sig", (), {"direction": "buy", "reason": "проверка"})()
+
+    decision = auto.decide(
+        strategy=strategy, signal=signal, equity_usd=Decimal(100),
+        price=Decimal(80_000), has_open_position=False,
+        min_amount=Decimal("0.0001"),
+    )
+
+    assert decision.action == "skip"
+    assert "минимального" in decision.reason
+
+
+def test_amount_above_minimum_passes():
+    strategy = type("S", (), {
+        "position_size_pct": Decimal(10), "max_pct_per_trade": Decimal(20),
+    })()
+    signal = type("Sig", (), {"direction": "buy", "reason": "проверка"})()
+
+    decision = auto.decide(
+        strategy=strategy, signal=signal, equity_usd=Decimal(10_000),
+        price=Decimal(80_000), has_open_position=False,
+        min_amount=Decimal("0.0001"),
+    )
+
+    assert decision.action == "open"
+
+
+class ClosingAdapter:
+    """Биржа, у которой на балансе меньше, чем было куплено."""
+
+    def __init__(self, free: str | None):
+        self.free = Decimal(free) if free is not None else None
+        self.orders: list[tuple] = []
+
+    async def fetch_balances(self):
+        if self.free is None:
+            raise RuntimeError("баланс недоступен")
+        return [fakes.balance("BTC", str(self.free))]
+
+    async def create_market_order(self, symbol, side, amount):
+        from app.exchanges.base import OrderResult
+
+        self.orders.append((symbol, side, amount))
+        return OrderResult(
+            external_id="close-1", symbol=symbol, side=side, amount=amount,
+            price=Decimal(88_000), status="closed", filled=amount,
+            average_price=Decimal(88_000),
+        )
+
+
+async def test_close_sells_only_what_is_on_balance(session, setup):
+    """Комиссию биржа удерживает монетой — купленный объём продать нельзя."""
+    strategy = setup["strategy"]
+    strategy.is_active = True
+    strategy.mode = MODE_TESTNET
+    await session.flush()
+
+    signal = make_signal(setup)
+    session.add(signal)
+    await session.flush()
+
+    opening = ClosingAdapter(free="1")
+    order = await auto.execute(session, strategy, signal, adapter=opening)
+    bought = order.amount
+
+    closing = ClosingAdapter(free=str(bought * Decimal("0.999")))
+    closed = await auto.close_position(
+        session, strategy, order, Decimal(88_000), "проверка", adapter=closing
+    )
+    await session.commit()
+
+    assert closed is not None
+    _, side, sold = closing.orders[0]
+    assert side == "sell"
+    assert sold < bought, "продаём остаток, а не полный объём"
+
+    entries = (await session.execute(select(BotJournalEntry))).scalars().all()
+    assert any("комиссия биржи" in entry.message for entry in entries)
+
+
+async def test_close_refuses_when_balance_is_empty(session, setup):
+    """Позицию продали вручную — молчать об этом нельзя."""
+    strategy = setup["strategy"]
+    strategy.is_active = True
+    strategy.mode = MODE_TESTNET
+    await session.flush()
+
+    signal = make_signal(setup)
+    session.add(signal)
+    await session.flush()
+    order = await auto.execute(session, strategy, signal, adapter=ClosingAdapter(free="1"))
+
+    empty = ClosingAdapter(free="0")
+    assert await auto.close_position(
+        session, strategy, order, Decimal(88_000), "проверка", adapter=empty
+    ) is None
+    await session.commit()
+
+    assert empty.orders == [], "заявку на пустой баланс отправлять незачем"
+    entries = (await session.execute(select(BotJournalEntry))).scalars().all()
+    assert any("закрывать нечем" in entry.message for entry in entries)
+
+
+async def test_close_falls_back_to_full_amount_when_balance_unknown(session, setup):
+    """Не смогли узнать остаток — пробуем закрыть, отказ попадёт в журнал."""
+    strategy = setup["strategy"]
+    strategy.is_active = True
+    strategy.mode = MODE_TESTNET
+    await session.flush()
+
+    signal = make_signal(setup)
+    session.add(signal)
+    await session.flush()
+    order = await auto.execute(session, strategy, signal, adapter=ClosingAdapter(free="1"))
+
+    blind = ClosingAdapter(free=None)
+    closed = await auto.close_position(
+        session, strategy, order, Decimal(88_000), "проверка", adapter=blind
+    )
+    await session.commit()
+
+    assert closed is not None
+    assert blind.orders[0][2] == order.amount

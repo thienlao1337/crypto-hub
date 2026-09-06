@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.exchanges.base import ExchangeAdapter
 from app.models import (
+    Asset,
     BotJournalEntry,
     BotOrder,
     ExchangeAccount,
@@ -314,6 +315,7 @@ def decide(
     equity_usd: Decimal,
     price: Decimal,
     has_open_position: bool,
+    min_amount: Decimal | None = None,
 ) -> Decision:
     """Что делать по сигналу. Чистая функция — её проверяет тест.
 
@@ -352,6 +354,18 @@ def decide(
 
     if amount <= 0:
         return Decision(action="skip", reason="Расчётный объём нулевой.")
+
+    # Минимальный лот проверяем во всех режимах, включая бумажный: сделка
+    # объёмом ниже минимума на бирже не состоялась бы, и записывать её в
+    # бумажный результат значило бы обещать прибыль, которой не будет.
+    if min_amount is not None and amount < min_amount:
+        return Decision(
+            action="skip",
+            reason=(
+                f"Расчётный объём {_num(amount)} меньше минимального "
+                f"{_num(min_amount)} для этой пары — увеличьте размер позиции."
+            ),
+        )
 
     return Decision(
         action="open",
@@ -446,6 +460,7 @@ async def execute(
     user = await session.get(User, strategy.user_id)
     summary = await portfolio_service.build_summary(session, user)
     position = await open_position(session, strategy)
+    market = await session.get(Market, strategy.market_id)
 
     decision = decide(
         strategy=strategy,
@@ -453,6 +468,7 @@ async def execute(
         equity_usd=summary.total_usd,
         price=price,
         has_open_position=position is not None,
+        min_amount=market.min_amount if market else None,
     )
 
     if decision.action == "close":
@@ -464,7 +480,6 @@ async def execute(
         await journal(session, strategy, EVENT_SKIPPED, decision.reason)
         return None
 
-    market = await session.get(Market, strategy.market_id)
     order = BotOrder(
         strategy_id=strategy.id,
         signal_id=signal.id,
@@ -506,6 +521,9 @@ async def execute(
     order.external_order_id = result.external_id
     order.status = result.status
     order.price = result.average_price or price
+    # Биржа округляет объём под свой шаг лота: в базе должно остаться то,
+    # что она приняла, иначе расчёт результата разойдётся с реальностью.
+    order.amount = result.amount
     order.raw = result.raw or None
     session.add(order)
 
@@ -576,9 +594,15 @@ async def close_position(
             return None
 
         market = await session.get(Market, strategy.market_id)
+        base = await session.get(Asset, market.base_asset_id) if market else None
+
+        amount = await _sellable_amount(session, strategy, adapter, base, order.amount)
+        if amount is None:
+            return None
+
         opposite = DIRECTION_SELL if order.side == DIRECTION_BUY else DIRECTION_BUY
         try:
-            result = await adapter.create_market_order(market.symbol, opposite, order.amount)
+            result = await adapter.create_market_order(market.symbol, opposite, amount)
         except Exception as exc:
             await journal(session, strategy, EVENT_ERROR, f"Биржа отклонила закрытие: {exc}")
             await session.flush()
@@ -613,6 +637,57 @@ async def close_position(
     await register_result(session, strategy, pnl_of_equity)
     await session.flush()
     return order
+
+
+async def _sellable_amount(
+    session: AsyncSession,
+    strategy: Strategy,
+    adapter: ExchangeAdapter,
+    base: "Asset | None",
+    wanted: Decimal,
+) -> Decimal | None:
+    """Сколько монеты реально можно продать при закрытии.
+
+    Продать ровно купленное обычно нельзя: комиссию биржа часто удерживает
+    самой монетой, и на балансе оказывается чуть меньше, чем в ордере.
+    Заявка на полный объём возвращает «недостаточно средств», и позиция
+    остаётся открытой — со снятым стоп-лоссом, о котором никто не знает.
+
+    Поэтому объём ограничивается свободным остатком. None означает, что
+    закрывать нечем и причина уже записана в журнал.
+    """
+    if base is None:
+        return wanted
+
+    try:
+        balances = await adapter.fetch_balances()
+    except Exception as exc:
+        # Остаток узнать не удалось — пробуем закрыть полным объёмом:
+        # отказ биржи попадёт в журнал следующим шагом.
+        logger.warning("Не удалось получить баланс перед закрытием: %s", exc)
+        return wanted
+
+    free = next(
+        (entry.free for entry in balances if entry.asset == base.symbol), Decimal(0)
+    )
+    if free <= 0:
+        await journal(
+            session, strategy, EVENT_ERROR,
+            f"На балансе нет {base.symbol} — закрывать нечем. "
+            "Проверьте, не продана ли позиция вручную.",
+        )
+        await session.flush()
+        return None
+
+    if free >= wanted:
+        return wanted
+
+    await journal(
+        session, strategy, EVENT_CLOSED,
+        f"Свободно {_num(free)} {base.symbol} вместо {_num(wanted)} — "
+        "закрываем остатком (комиссия биржи удержана монетой).",
+    )
+    return free
 
 
 async def journal(

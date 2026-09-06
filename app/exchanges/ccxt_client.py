@@ -231,15 +231,28 @@ class CcxtAdapter:
         if side not in ("buy", "sell"):
             raise ExchangeError(f"Неизвестное направление ордера: {side}")
 
+        # Объём приходит из расчёта доли депозита и выглядит как
+        # 0.05358804425365755979124688685 — биржа такой ордер отклонит
+        # целиком: она принимает только кратное своему шагу лота. Шаг
+        # знает ccxt, но для этого нужен загруженный справочник
+        # инструментов; load_markets кэширует, так что вызов дешёвый.
+        await self._call(self._client.load_markets)
+        rounded = to_decimal(self._client.amount_to_precision(symbol, float(amount)))
+
+        if rounded is None or rounded <= 0:
+            raise ExchangeError(
+                f"Объём {amount} меньше шага лота {symbol} — ордер не выставлен."
+            )
+
         raw = await self._call(
-            self._client.create_order, symbol, "market", side, float(amount)
+            self._client.create_order, symbol, "market", side, float(rounded)
         )
 
         return OrderResult(
             external_id=str(raw.get("id") or ""),
             symbol=raw.get("symbol") or symbol,
             side=raw.get("side") or side,
-            amount=to_decimal(raw.get("amount")) or amount,
+            amount=to_decimal(raw.get("amount")) or rounded,
             price=to_decimal(raw.get("price")),
             status=raw.get("status") or "unknown",
             filled=to_decimal(raw.get("filled")) or Decimal(0),
