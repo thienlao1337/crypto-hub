@@ -129,6 +129,12 @@ async def add_account(
     if not api_key or not api_secret:
         raise KeyRejected("Заполните и ключ, и секрет.")
 
+    # Признак хранится в справочнике бирж, чтобы клиент мог добавить туда
+    # биржу без песочницы, не трогая код. Проверяем до запроса к бирже:
+    # обращаться в несуществующую тестовую сеть незачем.
+    if testnet and not exchange.supports_testnet:
+        raise KeyRejected(f"У биржи {exchange.name} нет тестовой сети.")
+
     check = await _check_with_exchange(exchange_code, api_key, api_secret, testnet, adapter_factory)
     if not check.is_valid:
         raise KeyRejected(check.error or "Биржа отклонила ключ.")

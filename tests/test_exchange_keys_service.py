@@ -263,3 +263,38 @@ async def test_unsupported_exchange_rejected(session, user):
 )
 def test_mask_key(api_key, expected):
     assert keys.mask_key(api_key) == expected
+
+
+async def test_testnet_refused_for_exchange_without_sandbox(session, exchange, user):
+    """Признак песочницы лежит в справочнике, чтобы клиент правил его сам."""
+    exchange.supports_testnet = False
+    await session.flush()
+
+    adapter = fakes.FakeAdapter()
+    with pytest.raises(keys.KeyRejected):
+        await keys.add_account(
+            session,
+            user,
+            exchange_code="bybit",
+            api_key=API_KEY,
+            api_secret=API_SECRET,
+            testnet=True,
+            adapter_factory=fakes.factory_for(adapter),
+        )
+
+    # До биржи дело дойти не должно: спрашивать несуществующую сеть незачем.
+    assert adapter.calls == []
+
+
+async def test_testnet_allowed_where_supported(session, exchange, user):
+    account = await keys.add_account(
+        session,
+        user,
+        exchange_code="bybit",
+        api_key=API_KEY,
+        api_secret=API_SECRET,
+        testnet=True,
+        adapter_factory=fakes.factory_for(fakes.FakeAdapter()),
+    )
+
+    assert account.is_testnet is True

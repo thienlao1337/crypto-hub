@@ -90,7 +90,10 @@
       <label for="exchange_code">Биржа</label>
       <select id="exchange_code" name="exchange_code" required>
         {% for exchange in exchanges %}
-          <option value="{{ exchange.code }}">{{ exchange.name }}</option>
+          <option value="{{ exchange.code }}"
+                  data-testnet="{{ 'yes' if exchange.supports_testnet else 'no' }}">
+            {{ exchange.name }}
+          </option>
         {% endfor %}
       </select>
     </div>
@@ -112,8 +115,8 @@
       <div class="dim">Хранится в зашифрованном виде, в интерфейсе больше не показывается.</div>
     </div>
 
-    <label class="check">
-      <input type="checkbox" name="testnet" value="true">
+    <label class="check" id="testnet-row">
+      <input type="checkbox" name="testnet" value="true" id="testnet">
       <span>Тестовая сеть (testnet)</span>
     </label>
 
@@ -128,4 +131,27 @@
     <button type="submit" class="btn btn-primary">Подключить</button>
   </form>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Галочку testnet показываем только тем биржам, у которых песочница
+  // есть: предложить её и получить отказ — худший порядок действий.
+  (function () {
+    var select = document.getElementById('exchange_code');
+    var row = document.getElementById('testnet-row');
+    var box = document.getElementById('testnet');
+    if (!select || !row) return;
+
+    function sync() {
+      var option = select.options[select.selectedIndex];
+      var supported = option && option.dataset.testnet === 'yes';
+      row.hidden = !supported;
+      if (!supported) box.checked = false;
+    }
+
+    select.addEventListener('change', sync);
+    sync();
+  })();
+</script>
 {% endblock %}

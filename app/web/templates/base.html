@@ -1,12 +1,14 @@
 <!DOCTYPE html>
-<html lang="ru" data-theme="dark">
+<html lang="ru" data-theme="{{ current_user.theme if current_user else 'dark' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Crypto Hub{% endblock %}</title>
 
-  {# Тему ставим до первой отрисовки, иначе при перезагрузке светлой темы
-     мигает тёмный фон. #}
+  {# Для вошедшего пользователя тема приезжает из его настроек прямо в
+     атрибуте выше — мигания нет по построению. Для страниц входа
+     остаётся местная память браузера: аккаунта там ещё нет. #}
+  {% if not current_user %}
   <script>
     (function () {
       try {
@@ -19,6 +21,7 @@
       }
     })();
   </script>
+  {% endif %}
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -38,11 +41,25 @@
       var root = document.documentElement;
       var next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
       root.setAttribute('data-theme', next);
-      try {
-        localStorage.setItem('theme', next);
-      } catch (e) {
-        /* не смогли запомнить — тема всё равно переключилась на эту сессию */
+
+      // Вошедшему запоминаем выбор на сервере: тема должна ехать за
+      // аккаунтом, а не оставаться в одном браузере. Гостю на странице
+      // входа сохранять некуда, кроме местной памяти.
+      var csrf = {{ (csrf_token | tojson) if current_user else 'null' }};
+      if (csrf) {
+        fetch('/settings/theme', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ theme: next, csrf_token: csrf })
+        }).catch(function () { /* сеть моргнула — тема всё равно сменилась */ });
+      } else {
+        try {
+          localStorage.setItem('theme', next);
+        } catch (e) {
+          /* не смогли запомнить — тема всё равно переключилась на эту сессию */
+        }
       }
+
       // Виджеты, которые рисуют себя сами (графики), читают цвета один раз
       // при создании — им нужно сказать, что палитра сменилась.
       document.dispatchEvent(new CustomEvent('themechange', { detail: next }));

@@ -3,7 +3,7 @@
 from zoneinfo import available_timezones
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
@@ -56,6 +56,29 @@ async def change_timezone(
     await session.commit()
     flash.success(request, f"Часовой пояс: {timezone_name}. Время на экранах пересчитано.")
     return RedirectResponse(PAGE, status_code=303)
+
+
+@router.post("/theme")
+async def change_theme(
+    request: Request,
+    theme: str = Form(...),
+    csrf_token: str = Form(""),
+    user: User = Depends(auth.require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Запомнить выбранную тему за аккаунтом.
+
+    Отвечает JSON, а не редиректом: переключатель темы срабатывает на
+    любой странице, и уводить с неё из-за смены цвета незачем.
+    """
+    auth.verify_csrf(request, csrf_token)
+
+    if theme not in ("dark", "light"):
+        return JSONResponse({"error": "Неизвестная тема."}, status_code=400)
+
+    user.theme = theme
+    await session.commit()
+    return {"ok": True}
 
 
 @router.get("/notifications", response_class=HTMLResponse)
