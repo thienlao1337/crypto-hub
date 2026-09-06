@@ -404,3 +404,10 @@ async def test_notification_settings_saved(logged_in, session):
     assert matrix[("alert", "telegram")] is False
     assert matrix[("signal", "telegram")] is True
     assert matrix[("signal", "web")] is False
+
+
+async def test_portfolio_sync_rejects_forged_request(logged_in):
+    """Кнопка «Обновить» дёргает биржи — по ссылке с чужого сайта нельзя."""
+    response = await logged_in.post("/portfolio/sync", data={"csrf_token": "чужой"})
+
+    assert response.status_code == 400

@@ -92,6 +92,8 @@ async def sync_now(
     Регулярную синхронизацию делает фоновый процесс; здесь — чтобы не
     ждать следующего цикла после того, как ключ только что добавлен.
     """
+    auth.verify_csrf(request, csrf_token)
+
     accounts = await keys_service.list_accounts(session, user)
 
     for account in accounts:
