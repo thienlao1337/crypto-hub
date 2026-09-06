@@ -15,7 +15,7 @@ from app.config import get_settings
 from app.db import get_session
 from app.models import P2PPriceRule, User
 from app.models.p2p import RULE_LIVE, RULE_OBSERVE
-from app.services import p2p_service, tools_service
+from app.services import p2p_service, payment_verification, tools_service
 from app.web import auth, flash
 from app.web.templates_env import templates
 
@@ -39,8 +39,10 @@ async def ads_page(
             "current_user": user,
             "csrf_token": auth.issue_csrf_token(request),
             "ads": await p2p_service.list_ads(session, user),
+            "orders": await p2p_service.list_orders(session, user, limit=30),
             "accounts": await p2p_service.p2p_accounts(session, user),
             "globally_enabled": settings.p2p_enabled,
+            "release_configured": payment_verification.is_configured(),
         },
     )
 

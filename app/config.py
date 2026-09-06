@@ -85,6 +85,7 @@ class Settings(BaseSettings):
     login_events_keep_days: int = 180
     notifications_keep_days: int = 90
     global_stats_keep_days: int = 365
+    p2p_events_keep_days: int = 180
 
     # --- Интервалы фоновых задач, секунды ---
     sync_balances_interval: int = 60

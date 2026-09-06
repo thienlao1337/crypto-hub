@@ -194,10 +194,15 @@ async def sync_p2p_ads() -> None:
                 adapter = await p2p_service.build_adapter(session, account)
                 try:
                     count = await p2p_service.sync_ads(session, account, adapter)
+                    # Заказы тянем тем же проходом: отдельная задача ради
+                    # одного запроса к той же площадке лишняя.
+                    orders = await p2p_service.sync_orders(session, account, adapter)
                     await session.commit()
                 finally:
                     await adapter.close()
-            logger.debug("Подключение %s: объявлений %s", account_id, count)
+            logger.debug(
+                "Подключение %s: объявлений %s, заказов %s", account_id, count, orders
+            )
         except Exception as exc:
             logger.warning("Объявления подключения %s не обновлены: %s", account_id, exc)
 

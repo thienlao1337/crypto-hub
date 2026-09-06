@@ -20,7 +20,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.exchanges.p2p import build_adapter as build_p2p_adapter
 from app.exchanges.p2p.base import P2PAccessDenied, P2PAdapter, P2PError
-from app.models import Exchange, ExchangeAccount, P2PAd, P2PPriceEvent, P2PPriceRule, User
+from app.models import (
+    Exchange,
+    ExchangeAccount,
+    P2PAd,
+    P2POrder,
+    P2PPriceEvent,
+    P2PPriceRule,
+    User,
+)
 from app.models.exchange import KEY_STATUS_OK
 from app.models.p2p import (
     AD_OFFLINE,
@@ -35,6 +43,7 @@ from app.models.p2p import (
 )
 from app.services import exchange_keys_service as keys_service
 from app.services import p2p_pricing as pricing
+from app.services import payment_verification
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -290,6 +299,7 @@ async def apply_rule(
         return await journal(
             session, ad, EVENT_SKIPPED,
             "P2P выключен глобально (P2P_ENABLED).",
+            collapse_repeats=True,
         )
 
     if not rule.is_active:
@@ -298,9 +308,11 @@ async def apply_rule(
     try:
         board = await adapter.fetch_board(side=ad.side, asset=ad.asset, fiat=ad.fiat)
     except P2PAccessDenied as exc:
-        return await journal(session, ad, EVENT_ERROR, str(exc))
+        return await journal(session, ad, EVENT_ERROR, str(exc), collapse_repeats=True)
     except P2PError as exc:
-        return await journal(session, ad, EVENT_ERROR, f"Доска недоступна: {exc}")
+        return await journal(
+            session, ad, EVENT_ERROR, f"Доска недоступна: {exc}", collapse_repeats=True
+        )
 
     reference = pricing.reference_price(board)
     decision = pricing.decide(
@@ -322,6 +334,7 @@ async def apply_rule(
         return await journal(
             session, ad, EVENT_SKIPPED, decision.reason,
             competitor_price=decision.competitor_price, spot_price=reference,
+            collapse_repeats=True,
         )
 
     if decision.action == pricing.ACTION_HOLD:
@@ -329,6 +342,7 @@ async def apply_rule(
             session, ad, EVENT_HELD, decision.reason,
             price_before=ad.price, price_after=ad.price,
             competitor_price=decision.competitor_price, spot_price=reference,
+            collapse_repeats=True,
         )
 
     if rule.mode == RULE_OBSERVE:
@@ -337,6 +351,7 @@ async def apply_rule(
             f"Наблюдение: поставил бы {_num(decision.price)}. {decision.reason}",
             price_before=ad.price, price_after=decision.price,
             competitor_price=decision.competitor_price, spot_price=reference,
+            collapse_repeats=True,
         )
 
     try:
@@ -358,6 +373,119 @@ async def apply_rule(
     )
 
 
+# --- Заказы ---
+
+
+async def sync_orders(
+    session: AsyncSession, account: ExchangeAccount, adapter: P2PAdapter
+) -> int:
+    """Обновить зеркало заказов по нашим объявлениям.
+
+    Только чтение: панель показывает, что происходит, а решение об
+    отпуске средств принимает человек.
+    """
+    orders = await adapter.fetch_orders()
+    ads = {
+        ad.external_id: ad.id
+        for ad in (
+            await session.execute(
+                select(P2PAd).where(P2PAd.exchange_account_id == account.id)
+            )
+        ).scalars()
+    }
+
+    for info in orders:
+        order = await _get_order(session, account.id, info.external_id)
+        if order is None:
+            order = P2POrder(
+                exchange_account_id=account.id, external_id=info.external_id
+            )
+            session.add(order)
+
+        order.side = info.side
+        order.asset = info.asset
+        order.fiat = info.fiat
+        order.status = info.status
+        order.amount = info.amount
+        order.fiat_amount = info.fiat_amount
+        order.price = info.price
+        order.counterparty = info.counterparty
+        order.paid_at = info.paid_at
+        order.ad_id = ads.get((info.raw or {}).get("itemId") or "", order.ad_id)
+        order.synced_at = datetime.now(timezone.utc)
+        order.raw = info.raw
+
+    await session.flush()
+    return len(orders)
+
+
+async def list_orders(
+    session: AsyncSession, user: User, *, limit: int = 100
+) -> list[P2POrder]:
+    result = await session.execute(
+        select(P2POrder)
+        .join(ExchangeAccount, ExchangeAccount.id == P2POrder.exchange_account_id)
+        .where(ExchangeAccount.user_id == user.id)
+        .order_by(P2POrder.created_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars())
+
+
+async def release_order(
+    session: AsyncSession,
+    order: P2POrder,
+    adapter: P2PAdapter,
+    *,
+    verifier=None,
+) -> P2POrder:
+    """Отпустить криптовалюту по заказу.
+
+    Отпуск возможен только после подтверждения прихода денег от источника
+    — банка или платёжного шлюза. Отметка «оплачено» на площадке этим
+    подтверждением не является: её ставит покупатель, и площадка её не
+    проверяет.
+
+    Пока провайдер проверки не настроен, автоматический отпуск
+    невозможен по построению, и это не временное ограничение: отпускать
+    по неподтверждённому заявлению значит отдавать деньги любому, кто
+    нажал кнопку.
+    """
+    if order.released_at is not None:
+        raise P2PServiceError("Средства по этому заказу уже отпущены.")
+
+    verifier = verifier or payment_verification.get_verifier()
+    check = await verifier.verify(
+        amount=order.fiat_amount or Decimal(0),
+        currency=order.fiat,
+        reference=order.external_id,
+    )
+
+    if not check.is_confirmed:
+        raise P2PServiceError(check.reason or "Поступление денег не подтверждено.")
+
+    await adapter.release_order(order.external_id)
+
+    order.released_at = datetime.now(timezone.utc)
+    order.release_reason = (
+        f"Подтверждено источником платежа: {check.reason or 'приход найден'}."
+    )
+    await session.flush()
+    return order
+
+
+async def _get_order(
+    session: AsyncSession, account_id: int, external_id: str
+) -> P2POrder | None:
+    result = await session.execute(
+        select(P2POrder).where(
+            P2POrder.exchange_account_id == account_id,
+            P2POrder.external_id == external_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 # --- Журнал ---
 
 
@@ -371,7 +499,22 @@ async def journal(
     price_after: Decimal | None = None,
     competitor_price: Decimal | None = None,
     spot_price: Decimal | None = None,
-) -> P2PPriceEvent:
+    collapse_repeats: bool = False,
+) -> P2PPriceEvent | None:
+    """Записать решение.
+
+    collapse_repeats нужен для решений «ничего не делаем». Правило
+    пересчитывается раз в минуту, и в спокойном рынке это полторы тысячи
+    одинаковых строк в сутки на объявление: журнал, в котором нельзя
+    найти единственную важную запись, — это не журнал. Повтор подряд
+    того же решения с тем же объяснением не пишется, а первое появление
+    и любое изменение — пишутся.
+    """
+    if collapse_repeats:
+        last = await _last_event(session, ad)
+        if last is not None and last.event_type == event_type and last.message == message:
+            return None
+
     event = P2PPriceEvent(
         ad_id=ad.id,
         event_type=event_type,
@@ -384,6 +527,16 @@ async def journal(
     session.add(event)
     await session.flush()
     return event
+
+
+async def _last_event(session: AsyncSession, ad: P2PAd) -> P2PPriceEvent | None:
+    result = await session.execute(
+        select(P2PPriceEvent)
+        .where(P2PPriceEvent.ad_id == ad.id)
+        .order_by(P2PPriceEvent.id.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 async def recent_events(

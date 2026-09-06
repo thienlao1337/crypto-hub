@@ -11,8 +11,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import select
 
-from app.exchanges.p2p.base import AdInfo, BoardEntry, P2PAccess, P2PError
-from app.models import ExchangeAccount, P2PAd, P2PPriceEvent
+from app.exchanges.p2p.base import AdInfo, BoardEntry, OrderInfo, P2PAccess, P2PError
+from app.models import ExchangeAccount, P2PAd, P2POrder, P2PPriceEvent
 from app.models.exchange import KEY_STATUS_OK
 from app.models.p2p import EVENT_ERROR, EVENT_HELD, EVENT_REPRICED, RULE_LIVE, RULE_OBSERVE
 from app.services import exchange_keys_service as keys
@@ -23,12 +23,14 @@ from tests import fakes
 class FakeP2P:
     """Площадка с заранее заданной доской и записью того, что ей послали."""
 
-    def __init__(self, ads=None, board=None, access=True, fail_update=False):
+    def __init__(self, ads=None, board=None, access=True, fail_update=False, orders=None):
         self._ads = ads or []
         self._board = board or []
+        self._orders = orders or []
         self._access = access
         self.fail_update = fail_update
         self.updates: list[tuple[str, Decimal]] = []
+        self.released: list[str] = []
         self.closed = False
 
     async def check_access(self):
@@ -46,10 +48,10 @@ class FakeP2P:
         self.updates.append((external_id, price))
 
     async def fetch_orders(self):
-        return []
+        return self._orders
 
     async def release_order(self, external_id):
-        ...
+        self.released.append(external_id)
 
     async def close(self):
         self.closed = True
@@ -340,3 +342,155 @@ async def test_editing_a_running_rule_stops_it(session, setup):
     assert rule.is_active is False, "правка обязана останавливать"
     assert rule.mode == RULE_LIVE, "режим при этом не сбрасываем — его выбирали отдельно"
     assert rule.floor_pct == Decimal(-5)
+
+
+async def test_repeated_no_op_is_not_journalled_again(session, setup):
+    """Правило считается раз в минуту — это полторы тысячи строк в сутки.
+
+    Журнал, в котором нельзя найти единственную важную запись, — не
+    журнал. Повтор того же решения подряд не пишется.
+    """
+    ad = await make_ad(session, setup)
+    rule = await make_rule(session, ad)
+    await p2p_service.set_active(session, ad, rule, True)
+
+    platform = FakeP2P(board=[board_entry("100"), board_entry("102"), board_entry("104")])
+
+    first = await p2p_service.apply_rule(session, ad, rule, platform)
+    second = await p2p_service.apply_rule(session, ad, rule, platform)
+    third = await p2p_service.apply_rule(session, ad, rule, platform)
+    await session.commit()
+
+    assert first is not None, "первое решение записать обязаны"
+    assert second is None and third is None
+
+    events = await p2p_service.recent_events(session, ad)
+    observations = [e for e in events if "Наблюдение" in e.message]
+    assert len(observations) == 1
+
+
+async def test_changed_decision_is_journalled(session, setup):
+    """Схлопывается повтор, а не изменение: доска поехала — запись нужна."""
+    ad = await make_ad(session, setup)
+    rule = await make_rule(session, ad)
+    await p2p_service.set_active(session, ad, rule, True)
+
+    await p2p_service.apply_rule(
+        session, ad, rule, FakeP2P(board=[board_entry("100"), board_entry("102")])
+    )
+    changed = await p2p_service.apply_rule(
+        session, ad, rule, FakeP2P(board=[board_entry("99"), board_entry("103")])
+    )
+    await session.commit()
+
+    assert changed is not None
+
+
+async def test_price_moves_are_never_collapsed(session, setup):
+    """Смена цены — всегда запись, сколько бы раз подряд она ни повторялась."""
+    ad = await make_ad(session, setup)
+    rule = await make_rule(session, ad, min_change=Decimal("0.001"))
+    await p2p_service.set_mode(session, ad, rule, RULE_LIVE)
+    await p2p_service.set_active(session, ad, rule, True)
+
+    for price in ("102", "103", "104"):
+        board = [board_entry(price), board_entry(str(Decimal(price) + Decimal(2)))]
+        event = await p2p_service.apply_rule(session, ad, rule, FakeP2P(board=board))
+        assert event is not None and event.event_type == EVENT_REPRICED
+    await session.commit()
+
+    events = await p2p_service.recent_events(session, ad)
+    assert len([e for e in events if e.event_type == EVENT_REPRICED]) == 3
+
+
+# --- Заказы и отпуск средств ---
+
+
+def order_info(external_id="ord-1", status="paid") -> OrderInfo:
+    return OrderInfo(
+        external_id=external_id,
+        side="sell",
+        asset="USDT",
+        fiat="RUB",
+        status=status,
+        amount=Decimal(100),
+        fiat_amount=Decimal(9700),
+        price=Decimal(97),
+        counterparty="Покупатель",
+    )
+
+
+class ConfirmingVerifier:
+    async def verify(self, *, amount, currency, reference, since=None):
+        from app.services.payment_verification import PaymentCheck
+
+        return PaymentCheck(is_confirmed=True, reason="перевод найден", matched_amount=amount)
+
+
+async def test_orders_are_mirrored(session, setup):
+    platform = FakeP2P(orders=[order_info()])
+
+    count = await p2p_service.sync_orders(session, setup["account"], platform)
+    await session.commit()
+
+    assert count == 1
+    order = (await session.execute(select(P2POrder))).scalar_one()
+    assert order.fiat_amount == Decimal(9700)
+    assert order.counterparty == "Покупатель"
+
+
+async def test_order_sync_is_idempotent(session, setup):
+    platform = FakeP2P(orders=[order_info()])
+    await p2p_service.sync_orders(session, setup["account"], platform)
+    await p2p_service.sync_orders(session, setup["account"], platform)
+    await session.commit()
+
+    assert len((await session.execute(select(P2POrder))).scalars().all()) == 1
+
+
+async def test_release_is_refused_without_a_configured_verifier(session, setup):
+    """Отметку «оплачено» ставит покупатель — это не подтверждение прихода.
+
+    Отпускать по ней значит отдавать деньги любому, кто нажал кнопку.
+    """
+    platform = FakeP2P(orders=[order_info()])
+    await p2p_service.sync_orders(session, setup["account"], platform)
+    order = (await session.execute(select(P2POrder))).scalar_one()
+
+    with pytest.raises(p2p_service.P2PServiceError) as info:
+        await p2p_service.release_order(session, order, platform)
+
+    assert "не настроена" in str(info.value)
+    assert platform.released == [], "до площадки дело доходить не должно"
+    assert order.released_at is None
+
+
+async def test_release_goes_through_when_payment_is_confirmed(session, setup):
+    platform = FakeP2P(orders=[order_info()])
+    await p2p_service.sync_orders(session, setup["account"], platform)
+    order = (await session.execute(select(P2POrder))).scalar_one()
+
+    await p2p_service.release_order(
+        session, order, platform, verifier=ConfirmingVerifier()
+    )
+    await session.commit()
+
+    assert platform.released == ["ord-1"]
+    assert order.released_at is not None
+    assert "Подтверждено источником платежа" in order.release_reason
+
+
+async def test_release_twice_is_refused(session, setup):
+    """Повторный отпуск — это вторая выдача одних и тех же денег."""
+    platform = FakeP2P(orders=[order_info()])
+    await p2p_service.sync_orders(session, setup["account"], platform)
+    order = (await session.execute(select(P2POrder))).scalar_one()
+
+    await p2p_service.release_order(session, order, platform, verifier=ConfirmingVerifier())
+
+    with pytest.raises(p2p_service.P2PServiceError):
+        await p2p_service.release_order(
+            session, order, platform, verifier=ConfirmingVerifier()
+        )
+
+    assert platform.released == ["ord-1"]

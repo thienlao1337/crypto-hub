@@ -44,6 +44,9 @@ AGED = (
     ("login_events", "created_at", "login_events_keep_days"),
     ("notifications", "created_at", "notifications_keep_days"),
     ("global_stats", "captured_at", "global_stats_keep_days"),
+    # Правило пересчитывается раз в минуту. Повторы подряд не пишутся, но
+    # на подвижном рынке записей всё равно много.
+    ("p2p_price_events", "created_at", "p2p_events_keep_days"),
 )
 
 

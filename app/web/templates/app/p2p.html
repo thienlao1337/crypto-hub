@@ -98,5 +98,64 @@
     </div>
   {% endif %}
 </section>
+
+<section class="card" style="margin-top:16px">
+  <h2>Заказы</h2>
+
+  {% if release_configured %}
+    <p class="dim">
+      Отпуск средств выполняется только после подтверждения прихода от
+      источника платежа.
+    </p>
+  {% else %}
+    <div class="flash flash-warn">
+      Автоматический отпуск средств выключен и включён быть не может:
+      не настроен источник, способный подтвердить приход денег. Отметку
+      «оплачено» ставит покупатель, площадка её не проверяет, поэтому
+      отпускать по ней — значит отдавать деньги любому, кто нажал кнопку.
+      Отпускайте вручную в кабинете площадки, убедившись в поступлении.
+    </div>
+  {% endif %}
+
+  {% if not orders %}
+    <p class="dim">Заказов пока нет.</p>
+  {% else %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Время</th>
+            <th>Пара</th>
+            <th>Сторона</th>
+            <th class="right">Объём</th>
+            <th class="right">Сумма</th>
+            <th>Контрагент</th>
+            <th>Состояние</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for order in orders %}
+          <tr>
+            <td class="num dim">{{ order.created_at|moment }}</td>
+            <td><strong>{{ order.asset }}/{{ order.fiat }}</strong></td>
+            <td class="{{ 'up' if order.side == 'buy' else 'down' }}">
+              {{ 'покупка' if order.side == 'buy' else 'продажа' }}
+            </td>
+            <td class="num right">{{ order.amount|amount(2) }}</td>
+            <td class="num right">{{ order.fiat_amount|amount(2) }}</td>
+            <td class="dim">{{ order.counterparty or '—' }}</td>
+            <td class="dim">
+              {{ order.status }}
+              {% if order.released_at %}
+                <div class="dim">отпущено {{ order.released_at|moment }}</div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
 {% endif %}
 {% endblock %}
