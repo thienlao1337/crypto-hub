@@ -10,7 +10,7 @@ import signal
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from app.config import get_settings
+from app.config import get_settings, verify_deployment
 from app.worker import delivery, tasks
 
 logging.basicConfig(
@@ -117,6 +117,8 @@ def build_scheduler() -> AsyncIOScheduler:
 
 
 async def main() -> None:
+    verify_deployment(settings)
+
     scheduler = build_scheduler()
 
     # Справочник пар нужен до первой синхронизации балансов: без него

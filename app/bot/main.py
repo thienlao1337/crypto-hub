@@ -13,7 +13,7 @@ from aiogram.enums import ParseMode
 
 from app.bot import middlewares
 from app.bot.handlers import common, data
-from app.config import get_settings
+from app.config import get_settings, verify_deployment
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +40,8 @@ def build_dispatcher() -> Dispatcher:
 
 
 async def main() -> None:
+    verify_deployment(settings)
+
     if not settings.bot_token:
         logger.error(
             "BOT_TOKEN не задан — бот не работает. "

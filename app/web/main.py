@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.config import get_settings
+from app.config import get_settings, verify_deployment
 from app.db import get_engine, session_scope
 from app.exchanges.ws_hub import hub
 from app.services import user_service
@@ -47,6 +47,10 @@ async def lifespan(app: FastAPI):
     в цикл перезапусков, и в логах теряется исходная причина. Проблему
     видно по /healthz и по записи ниже.
     """
+    # Раньше всего остального: настройки из примера — это открытая дверь,
+    # и подниматься с ними нельзя.
+    verify_deployment(settings)
+
     try:
         async with session_scope() as session:
             owner = await user_service.ensure_owner(

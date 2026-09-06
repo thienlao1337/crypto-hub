@@ -1,6 +1,16 @@
+import logging
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
+
+# Значения из .env.example. Они рабочие — с ними всё запускается и ничего
+# не жалуется, — и именно поэтому опасны: подписанную известным секретом
+# cookie подделает любой, кто видел исходники.
+DEFAULT_SESSION_SECRET = "dev-secret-change-me"
+DEFAULT_OWNER_PASSWORD = "change-me"
+DEFAULT_POSTGRES_PASSWORD = "cryptohub"
 
 
 class Settings(BaseSettings):
@@ -80,6 +90,84 @@ class Settings(BaseSettings):
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
+
+
+def deployment_problems(settings: "Settings") -> tuple[list[str], list[str]]:
+    """Что мешает выпускать это в прод: (запрещающее, предупреждающее).
+
+    Проверка нужна потому, что все эти значения работают. Забытый секрет
+    сессии не ломает ничего видимого — панель просто открывается, — а
+    подделать вход по нему может любой, кто читал репозиторий. Такое
+    должно падать громко, а не ждать инцидента.
+    """
+    blocking: list[str] = []
+    warnings: list[str] = []
+
+    if settings.session_secret in ("", DEFAULT_SESSION_SECRET):
+        blocking.append(
+            "SESSION_SECRET оставлен из примера. Подписанную им cookie подделает "
+            "любой, у кого есть исходники. Сгенерировать: "
+            'python -c "import secrets; print(secrets.token_urlsafe(48))"'
+        )
+
+    if not settings.encryption_key:
+        blocking.append(
+            "ENCRYPTION_KEY не задан — ключи бирж сохранить будет нечем. "
+            'Сгенерировать: python -c "from cryptography.fernet import Fernet; '
+            'print(Fernet.generate_key().decode())"'
+        )
+
+    if settings.seed_owner_password == DEFAULT_OWNER_PASSWORD:
+        blocking.append(
+            "SEED_OWNER_PASSWORD оставлен из примера — пароль владельца панели "
+            "известен всем."
+        )
+
+    if settings.postgres_password == DEFAULT_POSTGRES_PASSWORD:
+        warnings.append(
+            "POSTGRES_PASSWORD оставлен из примера. Наружу база не публикуется, "
+            "но пароль стоит сменить."
+        )
+
+    if not settings.session_secure_cookie and not settings.public_url.startswith(
+        ("http://localhost", "http://127.0.0.1")
+    ):
+        warnings.append(
+            "SESSION_SECURE_COOKIE=false при публичном адресе: сессионная cookie "
+            "будет уходить по незашифрованному соединению."
+        )
+
+    return blocking, warnings
+
+
+def verify_deployment(settings: "Settings | None" = None) -> None:
+    """Не дать процессу подняться с настройками из примера.
+
+    В режиме DEBUG только предупреждаем: разработчику незачем каждый раз
+    заводить настоящие секреты, и падение здесь мешало бы работать.
+    """
+    settings = settings or get_settings()
+    blocking, warnings = deployment_problems(settings)
+
+    for message in warnings:
+        logger.warning("Настройки: %s", message)
+
+    if not blocking:
+        return
+
+    for message in blocking:
+        logger.error("Настройки: %s", message)
+
+    if settings.debug:
+        logger.warning(
+            "DEBUG=true, поэтому запуск продолжается. В проде эти настройки "
+            "остановят процесс."
+        )
+        return
+
+    raise RuntimeError(
+        "Небезопасные настройки, запуск остановлен:\n- " + "\n- ".join(blocking)
+    )
 
 
 @lru_cache
