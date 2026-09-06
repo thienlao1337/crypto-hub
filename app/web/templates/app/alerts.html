@@ -40,7 +40,10 @@
             <td class="num">
               {{ alert.trigger_count }}{% if alert.trigger_limit %} / {{ alert.trigger_limit }}{% endif %}
               {% if alert.last_triggered_at %}
-                <div class="dim">{{ alert.last_triggered_at.strftime('%d.%m %H:%M') }}</div>
+                <div class="dim">{{ alert.last_triggered_at|moment }}</div>
+              {% endif %}
+              {% if alert.expires_at %}
+                <div class="dim">до {{ alert.expires_at|moment }}</div>
               {% endif %}
             </td>
             <td>

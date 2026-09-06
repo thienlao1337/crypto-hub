@@ -262,9 +262,12 @@ async def create_alert(
     cooldown_seconds: int = 3600,
     notify_web: bool = True,
     notify_telegram: bool = True,
+    trigger_limit: int | None = None,
+    expires_at: datetime | None = None,
 ) -> Alert:
     alert_type = await _alert_type(session, type_code)
     validate_params(type_code, params)
+    validate_limits(trigger_limit, expires_at)
 
     alert = Alert(
         user_id=user.id,
@@ -274,6 +277,8 @@ async def create_alert(
         cooldown_seconds=max(60, cooldown_seconds),
         notify_web=notify_web,
         notify_telegram=notify_telegram,
+        trigger_limit=trigger_limit,
+        expires_at=expires_at,
     )
     session.add(alert)
     await session.flush()
@@ -290,16 +295,23 @@ async def update_alert(
     cooldown_seconds: int = 3600,
     notify_web: bool = True,
     notify_telegram: bool = True,
+    trigger_limit: int | None = None,
+    expires_at: datetime | None = None,
 ) -> Alert:
     """Изменить существующий алерт.
 
     Счётчик срабатываний остаётся: он считает жизнь алерта и сходится с
-    записями в истории. А вот пауза после последнего срабатывания при
-    смене условия снимается — иначе новое условие молчало бы до конца
-    паузы, назначенной старому.
+    записями в истории. Поэтому и лимит срабатываний считается от начала
+    жизни алерта, а не от последней правки — интерфейс показывает рядом
+    текущий счёт, чтобы это не было сюрпризом.
+
+    А вот пауза после последнего срабатывания при смене условия
+    снимается — иначе новое условие молчало бы до конца паузы,
+    назначенной старому.
     """
     alert_type = await _alert_type(session, type_code)
     validate_params(type_code, params)
+    validate_limits(trigger_limit, expires_at)
 
     condition_changed = (
         alert.alert_type_id != alert_type.id
@@ -313,6 +325,8 @@ async def update_alert(
     alert.cooldown_seconds = max(60, cooldown_seconds)
     alert.notify_web = notify_web
     alert.notify_telegram = notify_telegram
+    alert.trigger_limit = trigger_limit
+    alert.expires_at = expires_at
 
     if condition_changed:
         alert.last_triggered_at = None
@@ -331,6 +345,18 @@ async def recent_triggers(
         .limit(limit)
     )
     return list(result.scalars())
+
+
+def validate_limits(trigger_limit: int | None, expires_at: datetime | None) -> None:
+    """Проверить ограничения жизни алерта.
+
+    Срок в прошлом принимать нельзя: алерт молча не сработал бы ни разу,
+    и пользователь искал бы причину в условии.
+    """
+    if trigger_limit is not None and trigger_limit < 1:
+        raise AlertError("Количество срабатываний — целое число от 1.")
+    if expires_at is not None and _as_utc(expires_at) <= datetime.now(timezone.utc):
+        raise AlertError("Срок действия уже истёк — укажите будущее время.")
 
 
 def validate_params(type_code: str, params: dict) -> None:

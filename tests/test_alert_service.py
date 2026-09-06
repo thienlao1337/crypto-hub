@@ -448,3 +448,72 @@ async def test_recent_triggers_newest_first(session, setup):
 
     assert len(triggers) == 1
     assert "80000" in triggers[0].message
+
+
+# --- Лимит срабатываний и срок жизни ---
+
+
+async def test_trigger_limit_stops_alert(session, setup):
+    """Лимит проверялся в коде, но задать его было нечем."""
+    await alert_service.create_alert(
+        session, setup["user"],
+        market_id=setup["market"].id,
+        type_code="price_above",
+        params={"level": "79000"},
+        cooldown_seconds=60,
+        trigger_limit=1,
+    )
+    await session.commit()
+
+    first = await alert_service.evaluate_all(session)
+    await session.commit()
+    assert len(first) == 1
+
+    alert = (await alert_service.list_alerts(session, setup["user"]))[0][0]
+    alert.last_triggered_at = None  # снимаем паузу, проверяем именно лимит
+    await session.commit()
+
+    assert await alert_service.evaluate_all(session) == []
+
+
+async def test_expired_alert_is_silent(session, setup):
+    await alert_service.create_alert(
+        session, setup["user"],
+        market_id=setup["market"].id,
+        type_code="price_above",
+        params={"level": "79000"},
+        expires_at=NOW + timedelta(hours=1),
+    )
+    await session.commit()
+
+    assert len(await alert_service.evaluate_all(session)) == 1
+
+    alert = (await alert_service.list_alerts(session, setup["user"]))[0][0]
+    alert.expires_at = NOW - timedelta(minutes=1)
+    alert.last_triggered_at = None
+    await session.commit()
+
+    assert await alert_service.evaluate_all(session) == []
+
+
+async def test_past_deadline_rejected_at_creation(session, setup):
+    """Иначе алерт молча не сработал бы ни разу."""
+    with pytest.raises(alert_service.AlertError):
+        await alert_service.create_alert(
+            session, setup["user"],
+            market_id=setup["market"].id,
+            type_code="price_above",
+            params={"level": "79000"},
+            expires_at=NOW - timedelta(days=1),
+        )
+
+
+async def test_zero_trigger_limit_rejected(session, setup):
+    with pytest.raises(alert_service.AlertError):
+        await alert_service.create_alert(
+            session, setup["user"],
+            market_id=setup["market"].id,
+            type_code="price_above",
+            params={"level": "79000"},
+            trigger_limit=0,
+        )

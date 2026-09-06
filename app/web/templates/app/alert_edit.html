@@ -31,7 +31,7 @@
     <div class="journal">
       {% for trigger in triggers %}
       <div class="journal-row">
-        <span class="dim num">{{ trigger.triggered_at.strftime('%d.%m %H:%M:%S') }}</span>
+        <span class="dim num">{{ trigger.triggered_at|moment('%d.%m %H:%M:%S') }}</span>
         <span>{{ trigger.message }}</span>
       </div>
       {% endfor %}

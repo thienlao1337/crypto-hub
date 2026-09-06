@@ -153,7 +153,7 @@ async def signals(message: Message, session: AsyncSession, user: User | None) ->
             f"\n<b>{symbol}</b> {timeframe_code} — {word} по "
             f"<code>{formatting.number(signal.price)}</code>\n"
             f"<i>{signal.reason}</i>\n"
-            f"{signal.created_at.strftime('%d.%m %H:%M')}"
+            f"{formatting.moment(signal.created_at, user)}"
         )
 
     lines.append("\n<i>Технический анализ, не финансовая рекомендация.</i>")

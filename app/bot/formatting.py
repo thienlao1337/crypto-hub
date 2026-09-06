@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
 from app.services import alert_service
+from app.services.localtime import moment as _moment
 
 # «/alert BTC > 70000», «BTC>70000», «btc < 60 000.5»
 ALERT_PATTERN = re.compile(
@@ -90,6 +91,11 @@ def percent(value, *, signed: bool = True) -> str:
     number_value = float(value)
     sign = "+" if signed and number_value >= 0 else ""
     return f"{sign}{number_value:.2f}%"
+
+
+def moment(value, user, fmt: str = "%d.%m %H:%M") -> str:
+    """Время в поясе пользователя — та же функция, что и в панели."""
+    return _moment(value, user, fmt)
 
 
 def direction_word(direction: str) -> str:

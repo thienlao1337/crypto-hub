@@ -65,7 +65,7 @@
               {% else %}
                 активно
                 {% if invite.expires_at %}
-                  <div class="dim">до {{ invite.expires_at.strftime('%d.%m.%Y') }}</div>
+                  <div class="dim">до {{ invite.expires_at|moment('%d.%m.%Y') }}</div>
                 {% endif %}
               {% endif %}
             </td>

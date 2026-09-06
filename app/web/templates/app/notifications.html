@@ -16,7 +16,7 @@
       <article class="signal">
         <div class="signal-head">
           <strong>{{ item.title }}</strong>
-          <span class="dim signal-time">{{ item.created_at.strftime('%d.%m %H:%M') }}</span>
+          <span class="dim signal-time">{{ item.created_at|moment }}</span>
         </div>
         <p class="signal-reason">{{ item.body }}</p>
       </article>

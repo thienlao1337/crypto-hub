@@ -23,7 +23,7 @@
 {% if strategy.mode == 'live' %}
   <div class="flash flash-warn">
     Стратегия в режиме <strong>реальных сделок</strong>. Подтверждено
-    {{ strategy.live_confirmed_at.strftime('%d.%m.%Y %H:%M') }}.
+    {{ strategy.live_confirmed_at|moment('%d.%m.%Y %H:%M') }}.
   </div>
 {% endif %}
 
@@ -137,7 +137,7 @@
         <tbody>
           {% for order in orders %}
           <tr>
-            <td class="num dim">{{ order.opened_at.strftime('%d.%m %H:%M') }}</td>
+            <td class="num dim">{{ order.opened_at|moment }}</td>
             <td class="dim">{{ order.mode }}</td>
             <td class="{{ 'up' if order.side == 'buy' else 'down' }}">
               {{ 'покупка' if order.side == 'buy' else 'продажа' }}
@@ -183,7 +183,7 @@
     <div class="journal">
       {% for entry in journal %}
       <div class="journal-row">
-        <span class="dim num">{{ entry.created_at.strftime('%d.%m %H:%M:%S') }}</span>
+        <span class="dim num">{{ entry.created_at|moment('%d.%m %H:%M:%S') }}</span>
         <span class="badge">{{ entry.event_type }}</span>
         <span>{{ entry.message }}</span>
       </div>

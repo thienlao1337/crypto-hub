@@ -43,7 +43,7 @@
               {% if account.status == 'ok' %}
                 действителен
                 {% if account.last_sync_at %}
-                  <div class="dim">синхронизация {{ account.last_sync_at.strftime('%d.%m %H:%M') }}</div>
+                  <div class="dim">синхронизация {{ account.last_sync_at|moment }}</div>
                 {% endif %}
               {% else %}
                 <span class="text-danger">{{ account.status }}</span>

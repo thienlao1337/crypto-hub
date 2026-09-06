@@ -5,6 +5,7 @@
 """
 
 from datetime import datetime, timedelta, timezone
+from zoneinfo import available_timezones
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -246,6 +247,21 @@ async def complete_login(
         ip=ip,
         user_agent=user_agent,
     )
+
+
+async def set_timezone(session: AsyncSession, user: User, name: str) -> None:
+    """Сменить часовой пояс отображения.
+
+    Имя проверяется по базе зон, а не по списку в форме: список в
+    интерфейсе может отстать, а неизвестное имя молча вернуло бы
+    пользователя в UTC — и он бы этого не заметил.
+    """
+    name = (name or "").strip()
+    if name not in available_timezones():
+        raise UserServiceError("Такого часового пояса нет.")
+
+    user.timezone = name
+    await session.flush()
 
 
 async def change_password(

@@ -101,6 +101,30 @@
   </section>
 
   <section class="card">
+    <h2>Часовой пояс</h2>
+    <p class="muted">
+      В нём показываются все времена в панели и в боте: сработавшие
+      алерты, сигналы, история сделок. Хранится всё в UTC, меняется
+      только отображение.
+    </p>
+
+    <form method="post" action="/settings/timezone">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="field">
+        <label for="timezone_name">Пояс</label>
+        <select id="timezone_name" name="timezone_name">
+          {% for zone in timezones %}
+            <option value="{{ zone }}" {{ 'selected' if zone == current_user.timezone }}>
+              {{ zone }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn btn-ghost">Сохранить</button>
+    </form>
+  </section>
+
+  <section class="card">
     <h2>Уведомления</h2>
     <p class="muted">
       Что присылать в панель, а что в Telegram — по каждому виду событий

@@ -32,7 +32,7 @@
         <tbody>
           {% for trade, symbol, exchange_code in rows %}
           <tr>
-            <td class="num dim">{{ trade.executed_at.strftime('%d.%m.%Y %H:%M') }}</td>
+            <td class="num dim">{{ trade.executed_at|moment('%d.%m.%Y %H:%M') }}</td>
             <td>{{ exchange_code }}</td>
             <td><strong>{{ symbol }}</strong></td>
             <td>

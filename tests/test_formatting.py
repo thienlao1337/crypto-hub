@@ -1,7 +1,9 @@
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
 
+from app.services import localtime
 from app.web.templates_env import (
     GROUP_SEPARATOR as NB,  # узкий неразрывный пробел между разрядами
 )
@@ -75,3 +77,39 @@ def test_format_pct(value, signed, expected):
 
 def test_pct_respects_decimals():
     assert format_pct(Decimal("39.34"), 1) == "39.3%"
+
+
+# --- Часовой пояс ---
+
+
+class FakeUser:
+    def __init__(self, tz):
+        self.timezone = tz
+
+
+def test_moment_shifts_into_user_zone():
+    """Время хранится в UTC, показывается в поясе пользователя."""
+    utc = datetime(2026, 9, 6, 0, 27, tzinfo=timezone.utc)
+
+    assert localtime.moment(utc, FakeUser("UTC")) == "06.09 00:27"
+    assert localtime.moment(utc, FakeUser("Europe/Kyiv")) == "06.09 03:27"
+
+
+def test_moment_treats_naive_time_as_utc():
+    """Молча сдвинуть наивное время на местное — худший из вариантов."""
+    naive = datetime(2026, 9, 6, 0, 27)
+
+    assert localtime.moment(naive, FakeUser("Europe/Kyiv")) == "06.09 03:27"
+
+
+def test_unknown_zone_falls_back_to_utc_instead_of_crashing():
+    utc = datetime(2026, 9, 6, 0, 27, tzinfo=timezone.utc)
+
+    assert localtime.moment(utc, FakeUser("Средиземье/Шир")) == "06.09 00:27"
+
+
+def test_moment_without_user_is_utc():
+    utc = datetime(2026, 9, 6, 0, 27, tzinfo=timezone.utc)
+
+    assert localtime.moment(utc, None) == "06.09 00:27"
+    assert localtime.moment(None, FakeUser("UTC")) == "—"

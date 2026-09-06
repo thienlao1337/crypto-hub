@@ -83,7 +83,7 @@
       <div class="journal">
         {% for item in subscriptions %}
         <div class="journal-row">
-          <span class="dim num">{{ item.created_at.strftime('%d.%m.%Y') }}</span>
+          <span class="dim num">{{ item.created_at|moment('%d.%m.%Y') }}</span>
           <span>{{ item.label or 'браузер' }}</span>
           <button type="button" class="btn btn-ghost push-remove"
                   data-endpoint="{{ item.endpoint }}">Убрать</button>

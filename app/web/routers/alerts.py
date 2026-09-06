@@ -1,5 +1,7 @@
 """Алерты: список, создание, правка, удаление."""
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
@@ -8,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_session
 from app.models import AlertType, Exchange, Market, MarketTicker, User
 from app.models.market import MARKET_TYPE_SPOT
-from app.services import alert_service, watchlist_service
+from app.services import alert_service, localtime, watchlist_service
 from app.web import auth, flash
 from app.web.templates_env import templates
 
@@ -28,6 +30,9 @@ DEFAULT_VALUES = {
     "cooldown_minutes": 60,
     "notify_web": True,
     "notify_telegram": True,
+    "trigger_limit": "",
+    "expires_at": "",
+    "trigger_count": 0,
 }
 
 
@@ -68,6 +73,8 @@ async def create_alert(
     cooldown_minutes: int = Form(60),
     notify_web: bool = Form(False),
     notify_telegram: bool = Form(False),
+    trigger_limit: str = Form(""),
+    expires_at: str = Form(""),
     csrf_token: str = Form(""),
     user: User = Depends(auth.require_user),
     session: AsyncSession = Depends(get_session),
@@ -86,6 +93,8 @@ async def create_alert(
             cooldown_seconds=max(1, cooldown_minutes) * 60,
             notify_web=notify_web,
             notify_telegram=notify_telegram,
+            trigger_limit=_limit(trigger_limit),
+            expires_at=_deadline(expires_at, user),
         )
     except alert_service.AlertError as exc:
         await session.rollback()
@@ -138,7 +147,9 @@ async def edit_alert_page(
             "alert": alert,
             "alert_types": await _alert_types(session),
             "markets": markets,
-            "values": _values_from(alert, alert_type.code if alert_type else None),
+            "values": _values_from(
+                alert, alert_type.code if alert_type else None, user.timezone
+            ),
             "triggers": await alert_service.recent_triggers(session, alert),
         },
     )
@@ -159,6 +170,8 @@ async def update_alert(
     cooldown_minutes: int = Form(60),
     notify_web: bool = Form(False),
     notify_telegram: bool = Form(False),
+    trigger_limit: str = Form(""),
+    expires_at: str = Form(""),
     csrf_token: str = Form(""),
     user: User = Depends(auth.require_user),
     session: AsyncSession = Depends(get_session),
@@ -184,6 +197,8 @@ async def update_alert(
             cooldown_seconds=max(1, cooldown_minutes) * 60,
             notify_web=notify_web,
             notify_telegram=notify_telegram,
+            trigger_limit=_limit(trigger_limit),
+            expires_at=_deadline(expires_at, user),
         )
     except alert_service.AlertError as exc:
         await session.rollback()
@@ -276,7 +291,34 @@ async def _market_options(
     ], False
 
 
-def _values_from(alert, type_code: str | None) -> dict:
+def _limit(raw: str) -> int | None:
+    """Пусто — без ограничения; мусор отсекает сервис."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        raise alert_service.AlertError("Количество срабатываний — целое число.")
+
+
+def _deadline(raw: str, user: User) -> datetime | None:
+    """Разобрать datetime-local как местное время пользователя.
+
+    Браузер отдаёт его без пояса, и это время пользователя, а не сервера:
+    принять его за UTC значило бы промахнуться ровно на разницу поясов.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        naive = datetime.fromisoformat(raw)
+    except ValueError:
+        raise alert_service.AlertError("Не удалось разобрать дату окончания.")
+    return localtime.to_utc(naive, user.timezone)
+
+
+def _values_from(alert, type_code: str | None, user_timezone: str | None = None) -> dict:
     """Заполнить форму значениями существующего алерта."""
     params = alert.params or {}
     values = dict(DEFAULT_VALUES)
@@ -293,6 +335,13 @@ def _values_from(alert, type_code: str | None) -> dict:
             "cooldown_minutes": max(1, alert.cooldown_seconds // 60),
             "notify_web": alert.notify_web,
             "notify_telegram": alert.notify_telegram,
+            "trigger_limit": alert.trigger_limit or "",
+            "trigger_count": alert.trigger_count,
+            "expires_at": (
+                localtime.in_zone(alert.expires_at, user_timezone).strftime("%Y-%m-%dT%H:%M")
+                if alert.expires_at
+                else ""
+            ),
         }
     )
     return values

@@ -68,7 +68,7 @@
           <strong>{{ symbol }}</strong>
           <span class="dim">{{ timeframe_code }}</span>
           <span class="num dim">{{ signal.price|amount }}</span>
-          <span class="dim signal-time">{{ signal.created_at.strftime('%d.%m %H:%M') }}</span>
+          <span class="dim signal-time">{{ signal.created_at|moment }}</span>
         </div>
 
         <p class="signal-reason">{{ signal.reason }}</p>

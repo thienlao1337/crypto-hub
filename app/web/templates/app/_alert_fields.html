@@ -79,6 +79,25 @@
     </div>
   </div>
 
+  <div class="field-row">
+    <div class="field">
+      <label for="trigger_limit">Сколько раз срабатывать</label>
+      <input type="number" id="trigger_limit" name="trigger_limit" min="1" max="1000"
+             placeholder="без ограничения" value="{{ values.trigger_limit }}">
+      <div class="dim">
+        Считается за всю жизнь алерта{% if values.trigger_count %}
+        — уже сработал {{ values.trigger_count }} раз{% endif %}.
+        Пусто — без ограничения.
+      </div>
+    </div>
+    <div class="field">
+      <label for="expires_at">Действует до</label>
+      <input type="datetime-local" id="expires_at" name="expires_at"
+             value="{{ values.expires_at }}">
+      <div class="dim">В вашем часовом поясе. Пусто — бессрочно.</div>
+    </div>
+  </div>
+
   <label class="check">
     <input type="checkbox" name="notify_web" value="true" {{ 'checked' if values.notify_web }}>
     <span>Уведомление в панели</span>

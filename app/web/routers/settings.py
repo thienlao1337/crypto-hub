@@ -1,5 +1,7 @@
 """Настройки аккаунта: пароль, двухфакторная аутентификация, уведомления."""
 
+from zoneinfo import available_timezones
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,8 +31,31 @@ async def security_page(
             "csrf_token": auth.issue_csrf_token(request),
             "recovery_left": await user_service.unused_recovery_codes_count(session, user),
             "telegram_code": request.session.pop("telegram_code", None),
+            "timezones": sorted(available_timezones()),
         },
     )
+
+
+@router.post("/timezone")
+async def change_timezone(
+    request: Request,
+    timezone_name: str = Form(...),
+    csrf_token: str = Form(""),
+    user: User = Depends(auth.require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    auth.verify_csrf(request, csrf_token)
+
+    try:
+        await user_service.set_timezone(session, user, timezone_name)
+    except user_service.UserServiceError as exc:
+        await session.rollback()
+        flash.error(request, str(exc))
+        return RedirectResponse(PAGE, status_code=303)
+
+    await session.commit()
+    flash.success(request, f"Часовой пояс: {timezone_name}. Время на экранах пересчитано.")
+    return RedirectResponse(PAGE, status_code=303)
 
 
 @router.get("/notifications", response_class=HTMLResponse)

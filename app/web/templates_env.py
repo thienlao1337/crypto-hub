@@ -2,8 +2,10 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
+from jinja2 import pass_context
 from starlette.requests import Request
 
+from app.services.localtime import in_zone
 from app.web import flash
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -102,6 +104,21 @@ def format_pct(value, decimals: int = 2, *, signed: bool = False) -> str:
     return f"{text}%"
 
 
+@pass_context
+def format_moment(context, value, fmt: str = "%d.%m %H:%M") -> str:
+    """Время в поясе пользователя.
+
+    Фильтр берёт пояс из current_user прямо в контексте шаблона: иначе
+    каждый роутер тащил бы его в контекст руками и однажды забыл, а
+    страница молча показала бы UTC — самый неприятный вид ошибки, потому
+    что выглядит она правдоподобно.
+    """
+    if value is None:
+        return DASH
+    user = context.get("current_user")
+    return in_zone(value, getattr(user, "timezone", None)).strftime(fmt)
+
+
 def _group(text: str) -> str:
     sign = ""
     if text.startswith("-"):
@@ -146,3 +163,4 @@ templates.env.filters["amount"] = format_amount
 templates.env.filters["usd"] = format_usd
 templates.env.filters["usd_short"] = format_usd_short
 templates.env.filters["pct"] = format_pct
+templates.env.filters["moment"] = format_moment
