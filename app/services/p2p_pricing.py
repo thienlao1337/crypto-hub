@@ -1,13 +1,20 @@
 """Расчёт цены объявления. Чистая логика, без базы и без сети.
 
 Правило простое на словах: встань на шаг лучше соседа, которого хочешь
-обойти, но не выходи за коридор, посчитанный от рыночной цены.
+обойти, но не выходи за коридор, посчитанный от опорной цены.
 
 Коридор здесь не украшение. P2P — доска объявлений, и если бот держится
 только за соседей, то встретившись с чужим таким же ботом он получает
 бесконечный обмен шагами: каждый перебивает другого, пока цена не станет
-разорительной. Рынок — единственная точка опоры снаружи этой петли,
+разорительной. Коридор — единственное, что эту петлю останавливает,
 поэтому пол и потолок обязательны, а не «желательны».
+
+Опорная цена — медиана доски, а не спотовая котировка. Спотовой пары
+USDT/RUB на бирже не существует, а медиана есть у любой пары и на любой
+площадке. Она же и устойчива: два перебивающих друг друга бота тянут вниз
+хвост доски, а середину почти не двигают, поэтому пол под ними остаётся
+на месте. Когда у клиента появится статус мерчанта, опору можно перевести
+на собственную справочную цену площадки — это замена одной функции.
 
 Стороны считаются одинаково, отличается только направление выгоды. Мы
 продаём — покупателю интереснее цена ниже, значит первое место у самого
@@ -17,6 +24,7 @@
 
 from dataclasses import dataclass
 from decimal import Decimal
+from statistics import median
 
 from app.exchanges.p2p.base import BoardEntry
 
@@ -30,7 +38,7 @@ ACTION_SKIP = "skip"
 
 @dataclass(frozen=True)
 class PriceBand:
-    """Коридор допустимых цен, посчитанный от рыночной."""
+    """Коридор допустимых цен, посчитанный от опорной."""
 
     low: Decimal
     high: Decimal
@@ -47,15 +55,27 @@ class PriceDecision:
     clamped: bool = False
 
 
-def band(spot: Decimal, floor_pct: Decimal, ceiling_pct: Decimal) -> PriceBand:
-    """Границы от рыночной цены.
+def reference_price(board: list[BoardEntry]) -> Decimal | None:
+    """Опора: середина доски.
 
-    Проценты задаются относительно споте одинаково для обеих сторон:
+    Медиана, а не среднее: одно объявление с абсурдной ценой сдвигает
+    среднее и вместе с ним весь коридор, а середину не трогает.
+    """
+    prices = [entry.price for entry in board if entry.price > 0]
+    if not prices:
+        return None
+    return Decimal(str(median(sorted(prices))))
+
+
+def band(reference: Decimal, floor_pct: Decimal, ceiling_pct: Decimal) -> PriceBand:
+    """Границы от опорной цены.
+
+    Проценты задаются относительно опоры одинаково для обеих сторон:
     коридор — это диапазон наценки, а не «выше» и «ниже».
     """
     hundred = Decimal(100)
-    first = spot * (hundred + floor_pct) / hundred
-    second = spot * (hundred + ceiling_pct) / hundred
+    first = reference * (hundred + floor_pct) / hundred
+    second = reference * (hundred + ceiling_pct) / hundred
     # Порядок процентов не навязываем: перепутанные местами границы —
     # частая опечатка, и разворачивать их молча честнее, чем считать по
     # перевёрнутому коридору.
@@ -104,7 +124,7 @@ def decide(
     *,
     side: str,
     current_price: Decimal | None,
-    spot: Decimal | None,
+    reference: Decimal | None,
     board: list[BoardEntry],
     target_position: int,
     step: Decimal,
@@ -119,15 +139,15 @@ def decide(
     if side not in (SIDE_SELL, SIDE_BUY):
         return PriceDecision(ACTION_SKIP, f"Неизвестная сторона объявления: {side}.")
 
-    if spot is None or spot <= 0:
-        # Без рынка нет коридора, а без коридора двигать цену нельзя:
+    if reference is None or reference <= 0:
+        # Без опоры нет коридора, а без коридора двигать цену нельзя:
         # именно коридор не даёт боту уехать вслед за соседом в убыток.
         return PriceDecision(
             ACTION_SKIP,
-            "Нет рыночной цены — не от чего считать коридор, цену не трогаем.",
+            "Нет опорной цены — не от чего считать коридор, цену не трогаем.",
         )
 
-    limits = band(spot, floor_pct, ceiling_pct)
+    limits = band(reference, floor_pct, ceiling_pct)
     # Край коридора, выгодный нам: продавать дороже, покупать дешевле.
     best_edge = limits.high if side == SIDE_SELL else limits.low
 

@@ -66,6 +66,23 @@ def format_usd(value, decimals: int = 2, *, signed: bool = False) -> str:
     return f"+${text}" if signed else f"${text}"
 
 
+def format_plain(value) -> str:
+    """Число для поля ввода: без группировки, знака процента и хвоста нулей.
+
+    Отдельно от отображающих фильтров намеренно. Подставив в value формы
+    «-1.00%» или «1 000» с неразрывным пробелом, форму нельзя будет
+    отправить: сервер такое не разберёт, и правило перестанет
+    сохраняться от одного лишнего нажатия «Сохранить».
+    """
+    if value is None:
+        return ""
+    try:
+        number = Decimal(value)
+    except (InvalidOperation, TypeError, ValueError):
+        return ""
+    return format(number.normalize(), "f")
+
+
 def format_usd_short(value) -> str:
     """Крупная сумма коротко: $2.71 трлн вместо тринадцати цифр подряд.
 
@@ -164,3 +181,4 @@ templates.env.filters["usd"] = format_usd
 templates.env.filters["usd_short"] = format_usd_short
 templates.env.filters["pct"] = format_pct
 templates.env.filters["moment"] = format_moment
+templates.env.filters["plain"] = format_plain

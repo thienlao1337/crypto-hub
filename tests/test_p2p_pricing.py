@@ -13,7 +13,7 @@ import pytest
 from app.exchanges.p2p.base import BoardEntry
 from app.services import p2p_pricing as pricing
 
-SPOT = Decimal(100)
+REFERENCE = Decimal(100)
 
 
 def entry(price: str, *, ad_id: str | None = None, max_amount: str = "100000",
@@ -30,7 +30,7 @@ def decide(side="sell", board=None, current="105", **overrides):
     params = {
         "side": side,
         "current_price": Decimal(current) if current is not None else None,
-        "spot": SPOT,
+        "reference": REFERENCE,
         "board": board or [],
         "target_position": 1,
         "step": Decimal("0.1"),
@@ -159,9 +159,9 @@ def test_competitor_without_rating_is_kept():
 # --- Когда не двигаем ---
 
 
-def test_no_spot_price_means_no_move():
-    """Без рынка нет коридора, а без коридора двигать цену опасно."""
-    decision = decide(board=[entry("106")], spot=None)
+def test_no_reference_price_means_no_move():
+    """Без опоры нет коридора, а без коридора двигать цену опасно."""
+    decision = decide(board=[entry("106")], reference=None)
 
     assert decision.action == pricing.ACTION_SKIP
     assert "коридор" in decision.reason
@@ -216,3 +216,27 @@ def test_nonsense_position_falls_back_to_first(position):
     decision = decide(board=[entry("106"), entry("108")], target_position=position)
 
     assert decision.competitor_price == Decimal(106)
+
+
+# --- Опорная цена ---
+
+
+def test_reference_is_the_middle_of_the_board():
+    board = [entry("100"), entry("105"), entry("110")]
+
+    assert pricing.reference_price(board) == Decimal(105)
+
+
+def test_single_absurd_ad_does_not_move_the_reference():
+    """Среднее такое объявление утащило бы, а с ним и весь коридор."""
+    board = [entry("100"), entry("105"), entry("110"), entry("100000")]
+    sane = [entry("100"), entry("105"), entry("110")]
+
+    # Медиана четырёх — между двумя средними, но всё ещё рядом с рынком.
+    assert pricing.reference_price(board) < Decimal(120)
+    assert pricing.reference_price(sane) == Decimal(105)
+
+
+def test_reference_without_board_is_unknown():
+    """Пустая доска — не повод выдумывать опору."""
+    assert pricing.reference_price([]) is None

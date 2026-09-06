@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_session
 from app.models import User
 from app.services import exchange_keys_service as keys_service
+from app.services import p2p_service
 from app.web import auth, flash
 from app.web.templates_env import templates
 
@@ -85,6 +86,53 @@ async def add_key(
         flash.success(request, "Ключ подключён.")
 
     await session.commit()
+    return RedirectResponse(PAGE, status_code=303)
+
+
+@router.post("/{account_id}/p2p")
+async def request_p2p(
+    request: Request,
+    account_id: int,
+    csrf_token: str = Form(""),
+    user: User = Depends(auth.require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Запросить у площадки доступ к P2P для этого ключа.
+
+    Отдельным действием, а не галочкой при добавлении: статус
+    рекламодателя или мерчанта оформляется на площадке и появляется
+    позже, когда ключ уже подключён.
+    """
+    auth.verify_csrf(request, csrf_token)
+
+    account = await keys_service.get_account(session, user, account_id)
+    if account is None:
+        flash.error(request, "Подключение не найдено.")
+        return RedirectResponse(PAGE, status_code=303)
+
+    account.requested_p2p = True
+    adapter = await p2p_service.build_adapter(session, account)
+    try:
+        allowed = await p2p_service.verify_access(session, account, adapter)
+    except Exception as exc:
+        await session.rollback()
+        logger.warning("Проверка доступа к P2P для %s не удалась: %s", account_id, exc)
+        flash.error(request, "Не удалось проверить доступ к P2P. Попробуйте позже.")
+        return RedirectResponse(PAGE, status_code=303)
+    finally:
+        await adapter.close()
+
+    await session.commit()
+
+    if allowed:
+        flash.success(request, "Площадка подтвердила доступ к P2P.")
+    else:
+        flash.warn(
+            request,
+            "Площадка не открыла доступ к P2P. Нужен статус рекламодателя "
+            "(Bybit) или верифицированного мерчанта (Binance) — он "
+            "оформляется в кабинете площадки, не здесь.",
+        )
     return RedirectResponse(PAGE, status_code=303)
 
 

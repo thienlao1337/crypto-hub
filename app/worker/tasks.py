@@ -22,6 +22,8 @@ from app.db import session_scope
 from app.exchanges.ccxt_client import CcxtAdapter
 from app.models import (
     Alert,
+    P2PAd,
+    P2PPriceRule,
     Exchange,
     ExchangeAccount,
     Market,
@@ -42,6 +44,7 @@ from app.services import (
     notification_service,
     candle_service,
     market_service,
+    p2p_service,
     portfolio_service,
     position_service,
     signal_service,
@@ -171,6 +174,92 @@ async def snapshot_portfolios() -> None:
                 logger.debug("Снимок портфеля %s: %s", user_id, total)
         except Exception:
             logger.exception("Не удалось снять портфель пользователя %s", user_id)
+
+
+# --- P2P ---
+
+
+async def sync_p2p_ads() -> None:
+    """Обновить зеркало объявлений по подключениям с доступом к P2P."""
+    if not get_settings().p2p_enabled:
+        return
+
+    for account_id in await _p2p_account_ids():
+        try:
+            async with session_scope() as session:
+                account = await session.get(ExchangeAccount, account_id)
+                if account is None:
+                    continue
+
+                adapter = await p2p_service.build_adapter(session, account)
+                try:
+                    count = await p2p_service.sync_ads(session, account, adapter)
+                    await session.commit()
+                finally:
+                    await adapter.close()
+            logger.debug("Подключение %s: объявлений %s", account_id, count)
+        except Exception as exc:
+            logger.warning("Объявления подключения %s не обновлены: %s", account_id, exc)
+
+
+async def reprice_p2p() -> None:
+    """Пересчитать цену по каждому запущенному правилу."""
+    if not get_settings().p2p_enabled:
+        return
+
+    for ad_id in await _active_rule_ad_ids():
+        try:
+            await _reprice_one(ad_id)
+        except Exception:
+            logger.exception("Правило объявления %s не отработало", ad_id)
+
+
+async def _reprice_one(ad_id: int) -> None:
+    async with session_scope() as session:
+        ad = await session.get(P2PAd, ad_id)
+        if ad is None or ad.status == "closed":
+            return
+
+        rule = await session.scalar(
+            select(P2PPriceRule).where(P2PPriceRule.ad_id == ad.id)
+        )
+        if rule is None or not rule.is_active:
+            return
+
+        account = await session.get(ExchangeAccount, ad.exchange_account_id)
+        if account is None or not account.can_p2p:
+            return
+
+        adapter = await p2p_service.build_adapter(session, account)
+        try:
+            event = await p2p_service.apply_rule(session, ad, rule, adapter)
+            await session.commit()
+            if event is not None:
+                logger.debug("Объявление %s: %s", ad_id, event.event_type)
+        finally:
+            await adapter.close()
+
+
+async def _p2p_account_ids() -> list[int]:
+    async with session_scope() as session:
+        result = await session.execute(
+            select(ExchangeAccount.id).where(
+                ExchangeAccount.requested_p2p.is_(True),
+                ExchangeAccount.allow_p2p.is_(True),
+                ExchangeAccount.status != KEY_STATUS_INVALID,
+            )
+        )
+        return [account_id for (account_id,) in result]
+
+
+async def _active_rule_ad_ids() -> list[int]:
+    async with session_scope() as session:
+        result = await session.execute(
+            select(P2PPriceRule.ad_id)
+            .where(P2PPriceRule.is_active.is_(True))
+            .order_by(P2PPriceRule.ad_id)
+        )
+        return [ad_id for (ad_id,) in result]
 
 
 # --- Списки простыми значениями ---

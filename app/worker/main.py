@@ -118,6 +118,18 @@ def build_scheduler() -> AsyncIOScheduler:
         minutes=15,
         id="evaluate_signal_outcomes",
     )
+    scheduler.add_job(
+        tasks.sync_p2p_ads,
+        "interval",
+        seconds=settings.sync_p2p_ads_interval,
+        id="sync_p2p_ads",
+    )
+    scheduler.add_job(
+        tasks.reprice_p2p,
+        "interval",
+        seconds=settings.reprice_p2p_interval,
+        id="reprice_p2p",
+    )
     # Раз в сутки и в тихий час: удаление затрагивает большие таблицы, и
     # делать это одновременно с синхронизацией бирж незачем.
     scheduler.add_job(

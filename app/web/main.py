@@ -22,6 +22,7 @@ from app.web.routers import invites as invites_router
 from app.web.routers import keys as keys_router
 from app.web.routers import market as market_router
 from app.web.routers import notifications as notifications_router
+from app.web.routers import p2p as p2p_router
 from app.web.routers import portfolio as portfolio_router
 from app.web.routers import push as push_router
 from app.web.routers import settings as settings_router
@@ -94,6 +95,7 @@ app.include_router(alerts_router.router)
 app.include_router(notifications_router.router)
 app.include_router(tools_router.router)
 app.include_router(autotrade_router.router)
+app.include_router(p2p_router.router)
 app.include_router(keys_router.router)
 app.include_router(settings_router.router)
 app.include_router(invites_router.router)

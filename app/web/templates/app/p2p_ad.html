@@ -1,0 +1,214 @@
+{% extends "app/base.html" %}
+{% block title %}{{ ad.asset }}/{{ ad.fiat }} — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<div class="page-head">
+  <div>
+    <h1>{{ ad.asset }}/{{ ad.fiat }}</h1>
+    <p class="muted" style="margin:0">
+      {{ 'покупка' if ad.side == 'buy' else 'продажа' }} · объявление {{ ad.external_id }}
+    </p>
+  </div>
+  <a href="/p2p" class="dim">← Все объявления</a>
+</div>
+
+{% if rule and rule.mode == 'live' and rule.is_active %}
+  <div class="flash flash-warn">
+    Правило работает в <strong>боевом режиме</strong>: бот меняет цену
+    объявления сам.
+  </div>
+{% endif %}
+
+<div class="card-grid">
+  <section class="card">
+    <h2>Объявление</h2>
+    <div class="num stat-value">{{ ad.price|amount(4) }}</div>
+    <div class="stat-row"><span class="dim">остаток</span>
+      <span class="num">{{ ad.quantity|amount(2) }}</span></div>
+    <div class="stat-row"><span class="dim">лимиты</span>
+      <span class="num">{{ ad.min_amount|amount(2) }} — {{ ad.max_amount|amount(2) }}</span></div>
+    <div class="stat-row"><span class="dim">состояние</span>
+      <span>
+        {% if ad.status == 'online' %}опубликовано
+        {% elif ad.status == 'closed' %}снято
+        {% else %}скрыто{% endif %}
+      </span></div>
+    {% if ad.synced_at %}
+      <div class="stat-row"><span class="dim">сверено</span>
+        <span class="num dim">{{ ad.synced_at|moment }}</span></div>
+    {% endif %}
+  </section>
+
+  {% if rule %}
+  <section class="card">
+    <h2>Состояние правила</h2>
+    <div class="num stat-value">{{ 'работает' if rule.is_active else 'остановлено' }}</div>
+    <div class="stat-row">
+      <span class="dim">режим</span>
+      <span>{{ 'боевой' if rule.mode == 'live' else 'наблюдение' }}</span>
+    </div>
+    {% if rule.last_applied_at %}
+      <div class="stat-row"><span class="dim">цену меняли</span>
+        <span class="num dim">{{ rule.last_applied_at|moment }}</span></div>
+    {% endif %}
+
+    <form method="post" action="/p2p/{{ ad.id }}/toggle" style="margin-top:12px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="btn {{ 'btn-ghost' if rule.is_active else 'btn-primary' }}">
+        {{ 'Остановить' if rule.is_active else 'Запустить' }}
+      </button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Режим</h2>
+    <form method="post" action="/p2p/{{ ad.id }}/mode">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="field">
+        <label for="mode">Куда переключить</label>
+        <select id="mode" name="mode">
+          <option value="observe" {{ 'selected' if rule.mode == 'observe' }}>
+            наблюдение — только считать
+          </option>
+          <option value="live" {{ 'selected' if rule.mode == 'live' }}>
+            боевой — менять цену объявления
+          </option>
+        </select>
+      </div>
+
+      <label class="check">
+        <input type="checkbox" name="confirm" value="true">
+        <span>Понимаю, что бот будет менять цену моего объявления</span>
+      </label>
+      <div class="dim" style="margin-bottom:12px">
+        Галочка нужна только для боевого режима. Переключение всегда
+        останавливает правило.
+      </div>
+
+      <button type="submit" class="btn btn-ghost">Сменить режим</button>
+    </form>
+  </section>
+  {% endif %}
+</div>
+
+<section class="card" style="margin-top:16px; max-width:640px">
+  <h2>{{ 'Правило' if rule else 'Настроить правило' }}</h2>
+  <p class="muted">
+    Бот встаёт на шаг лучше соседа на выбранном месте, но не выходит за
+    коридор. Коридор считается от середины доски объявлений — это то
+    единственное, что не даёт цене уехать вслед за чужим ботом:
+    встретившись, два таких бота иначе перебивали бы друг друга без конца.
+  </p>
+
+  <form method="post" action="/p2p/{{ ad.id }}/rule">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="field-row">
+      <div class="field">
+        <label for="target_position">Какое место держать</label>
+        <input type="number" id="target_position" name="target_position" min="1" max="20"
+               value="{{ rule.target_position if rule else 1 }}" required>
+        <div class="dim">1 — первым в списке.</div>
+      </div>
+      <div class="field">
+        <label for="step">Шаг обхода</label>
+        <input type="text" id="step" name="step" inputmode="decimal"
+               value="{{ rule.step|plain if rule else '0.01' }}" required>
+        <div class="dim">На столько перебиваем соседа, в валюте объявления.</div>
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label for="floor_pct">Пол коридора, % от середины доски</label>
+        <input type="text" id="floor_pct" name="floor_pct" inputmode="decimal"
+               placeholder="-2" value="{{ rule.floor_pct|plain if rule else '' }}" required>
+      </div>
+      <div class="field">
+        <label for="ceiling_pct">Потолок коридора, %</label>
+        <input type="text" id="ceiling_pct" name="ceiling_pct" inputmode="decimal"
+               placeholder="5" value="{{ rule.ceiling_pct|plain if rule else '' }}" required>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="min_change">Порог изменения</label>
+      <input type="text" id="min_change" name="min_change" inputmode="decimal"
+             value="{{ rule.min_change|plain if rule else '0.05' }}" required>
+      <div class="dim">
+        Меньше этого цену не двигаем: каждое обновление — запрос к
+        площадке, и лимит не бесконечный.
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label for="min_competitor_amount">Не считать соседей с лимитом ниже</label>
+        <input type="text" id="min_competitor_amount" name="min_competitor_amount"
+               inputmode="decimal" placeholder="без ограничения"
+               value="{{ rule.min_competitor_amount|plain if rule else '' }}">
+        <div class="dim">
+          Объявление на полсотни утащит цену, ничего не обслужив.
+        </div>
+      </div>
+      <div class="field">
+        <label for="min_competitor_rate">И с долей сделок ниже, %</label>
+        <input type="text" id="min_competitor_rate" name="min_competitor_rate"
+               inputmode="decimal" placeholder="без ограничения"
+               value="{{ rule.min_competitor_rate|plain if rule else '' }}">
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Сохранить правило</button>
+  </form>
+</section>
+
+<section class="card" style="margin-top:16px">
+  <h2>Журнал</h2>
+  <p class="dim">
+    Записывается и то, что бот сделал, и то, чего не стал: «почему цена не
+    двигается» — вопрос не менее частый, чем «почему подвинулась».
+  </p>
+
+  {% if not events %}
+    <p class="dim">Пусто.</p>
+  {% else %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Время</th>
+            <th>Событие</th>
+            <th class="right">Было → стало</th>
+            <th class="right">Сосед</th>
+            <th class="right">Середина</th>
+            <th>Объяснение</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for event in events %}
+          <tr>
+            <td class="num dim">{{ event.created_at|moment('%d.%m %H:%M:%S') }}</td>
+            <td>
+              <span class="badge {{ 'badge-warn' if event.event_type == 'error' }}">
+                {{ event.event_type }}
+              </span>
+            </td>
+            <td class="num right">
+              {% if event.price_after is none %}
+                <span class="dim">—</span>
+              {% else %}
+                {{ event.price_before|amount(4) }} → {{ event.price_after|amount(4) }}
+              {% endif %}
+            </td>
+            <td class="num right dim">{{ event.competitor_price|amount(4) }}</td>
+            <td class="num right dim">{{ event.spot_price|amount(4) }}</td>
+            <td class="dim">{{ event.message }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

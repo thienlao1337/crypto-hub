@@ -38,6 +38,11 @@
               {% if account.is_testnet %}
                 <span class="badge">testnet</span>
               {% endif %}
+              {% if account.allow_p2p %}
+                <span class="badge badge-warn">P2P</span>
+              {% elif account.requested_p2p %}
+                <span class="badge" title="Площадка не подтвердила статус">P2P не открыт</span>
+              {% endif %}
             </td>
             <td>
               {% if account.status == 'ok' %}
@@ -58,6 +63,15 @@
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                   <button type="submit" class="btn btn-ghost">Проверить</button>
                 </form>
+                {% if not account.allow_p2p %}
+                  <form method="post" action="/settings/keys/{{ account.id }}/p2p">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn btn-ghost"
+                            title="Спросить у площадки, открыт ли ключу доступ к объявлениям">
+                      Запросить P2P
+                    </button>
+                  </form>
+                {% endif %}
                 <form method="post" action="/settings/keys/{{ account.id }}/delete"
                       onsubmit="return confirm('Удалить подключение? Балансы и история сделок по нему тоже пропадут.')">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

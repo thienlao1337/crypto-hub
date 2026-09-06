@@ -1,0 +1,102 @@
+{% extends "app/base.html" %}
+{% block title %}P2P — Crypto Hub{% endblock %}
+
+{% block app_content %}
+<div class="page-head">
+  <h1>P2P</h1>
+  <form method="post" action="/p2p/sync">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="btn btn-ghost">Подтянуть объявления</button>
+  </form>
+</div>
+
+{% if not globally_enabled %}
+  <div class="flash flash-warn">
+    P2P выключен глобально (<span class="mono">P2P_ENABLED=false</span>).
+    Правила можно настраивать и смотреть их решения в журнале, но цену
+    объявления бот не тронет, пока флаг не включён в окружении и сервисы
+    не перезапущены.
+  </div>
+{% endif %}
+
+<div class="disclaimer">
+  Бот двигает цену объявления, по которому у вас покупают за реальные
+  деньги. Каждое правило создаётся остановленным и в режиме наблюдения:
+  сначала посмотрите в журнале, какую цену он поставил бы, и только потом
+  включайте боевой режим.
+</div>
+
+{% if not accounts %}
+  <section class="card">
+    <h2>Нет доступа к P2P</h2>
+    <p class="muted">
+      P2P-эндпоинты закрыты, пока площадка не подтвердит статус: у Bybit —
+      рекламодатель (General Advertiser и выше), у Binance —
+      верифицированный мерчант. Запросите доступ для ключа в разделе
+      «Биржи», а сам статус оформляется в кабинете площадки.
+    </p>
+    <a class="btn btn-primary" href="/settings/keys">К ключам бирж</a>
+  </section>
+{% else %}
+
+<section class="card">
+  <h2>Объявления</h2>
+
+  {% if not ads %}
+    <p class="dim">
+      Объявлений не найдено. Они создаются в кабинете площадки — бот их
+      не заводит, а только держит им цену.
+    </p>
+  {% else %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Пара</th>
+            <th>Площадка</th>
+            <th>Сторона</th>
+            <th class="right">Цена</th>
+            <th class="right">Остаток</th>
+            <th>Состояние</th>
+            <th>Правило</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in ads %}
+          <tr class="{{ '' if row.ad.status == 'online' else 'row-muted' }}">
+            <td>
+              <a href="/p2p/{{ row.ad.id }}">
+                <strong>{{ row.ad.asset }}/{{ row.ad.fiat }}</strong>
+              </a>
+            </td>
+            <td class="dim">{{ row.exchange }}</td>
+            <td class="{{ 'up' if row.ad.side == 'buy' else 'down' }}">
+              {{ 'покупка' if row.ad.side == 'buy' else 'продажа' }}
+            </td>
+            <td class="num right">{{ row.ad.price|amount(4) }}</td>
+            <td class="num right dim">{{ row.ad.quantity|amount(2) }}</td>
+            <td class="dim">
+              {% if row.ad.status == 'online' %}опубликовано
+              {% elif row.ad.status == 'closed' %}снято
+              {% else %}скрыто{% endif %}
+            </td>
+            <td>
+              {% if not row.rule %}
+                <span class="dim">не настроено</span>
+              {% elif not row.rule.is_active %}
+                <span class="badge">остановлено</span>
+              {% elif row.rule.mode == 'live' %}
+                <span class="badge badge-warn">боевой режим</span>
+              {% else %}
+                <span class="badge">наблюдение</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

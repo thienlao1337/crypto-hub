@@ -7,7 +7,7 @@ from app.services import localtime
 from app.web.templates_env import (
     GROUP_SEPARATOR as NB,  # узкий неразрывный пробел между разрядами
 )
-from app.web.templates_env import format_amount, format_pct, format_usd
+from app.web.templates_env import format_amount, format_pct, format_plain, format_usd
 
 
 @pytest.mark.parametrize(
@@ -113,3 +113,32 @@ def test_moment_without_user_is_utc():
 
     assert localtime.moment(utc, None) == "06.09 00:27"
     assert localtime.moment(None, FakeUser("UTC")) == "—"
+
+
+# --- Значения для полей ввода ---
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (Decimal("-1.0000"), "-1"),
+        (Decimal("90.00"), "90"),
+        (Decimal("1000"), "1000"),
+        (Decimal("0.0200"), "0.02"),
+        (None, ""),
+    ],
+)
+def test_plain_is_safe_to_put_into_a_form(value, expected):
+    """Отображающие фильтры для value формы не годятся.
+
+    «-1.00%» и «1 000» с неразрывным пробелом сервер не разберёт, и
+    правило перестанет сохраняться от одного нажатия «Сохранить».
+    """
+    assert format_plain(value) == expected
+
+
+def test_plain_output_survives_a_round_trip():
+    from app.services import tools_service
+
+    for value in (Decimal("-1.5"), Decimal("0.02"), Decimal(1000)):
+        assert tools_service.parse_decimal(format_plain(value), "поле") == value
