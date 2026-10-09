@@ -1,8 +1,7 @@
-"""Разбор команд бота.
+"""Bot command parsing.
 
-Пользователь пишет команду руками, поэтому разбор должен прощать
-мелочи — лишние пробелы, запятую вместо точки, нижний регистр — и при
-этом внятно отказывать на бессмыслице.
+The user types commands by hand, so parsing must forgive small things - extra spaces, a
+comma instead of a dot, lowercase - while clearly rejecting nonsense.
 """
 
 from decimal import Decimal
@@ -21,9 +20,9 @@ from app.services import alert_service
         ("  ETH  <  2500  ", "ETH", alert_service.TYPE_PRICE_BELOW, Decimal("2500")),
         ("SOL >= 150.5", "SOL", alert_service.TYPE_PRICE_ABOVE, Decimal("150.5")),
         ("PEPE <= 0.000001", "PEPE", alert_service.TYPE_PRICE_BELOW, Decimal("0.000001")),
-        # Запятая как десятичный разделитель — привычка русской раскладки.
+        # Comma as the decimal separator - a habit from the Russian keyboard layout.
         ("BTC > 70000,5", "BTC", alert_service.TYPE_PRICE_ABOVE, Decimal("70000.5")),
-        # Пробелы внутри числа: так копируют из интерфейса.
+        # Spaces inside a number: that's how it's copied from the UI.
         ("BTC > 70 000", "BTC", alert_service.TYPE_PRICE_ABOVE, Decimal("70000")),
     ],
 )
@@ -45,7 +44,7 @@ def test_parse_alert_rejects_nonsense(text):
 
 
 def test_parse_alert_error_shows_example():
-    """Отказ должен подсказывать формат, а не просто ругаться."""
+    """A rejection must hint at the format, not just complain."""
     with pytest.raises(formatting.CommandError) as exc:
         formatting.parse_alert("непонятно что")
 
@@ -79,7 +78,7 @@ def test_number_has_no_zero_tail():
 
 def test_money_and_percent():
     assert formatting.money(Decimal("85054.5")) == "$85 054.50"
-    # Убыток пишется как «-$500», а не «$-500».
+    # A loss is written as "-$500", not "$-500".
     assert formatting.money(Decimal("-500")) == "-$500.00"
     assert formatting.percent(Decimal("5.256")) == "+5.26%"
     assert formatting.percent(Decimal("-1.6")) == "-1.60%"
@@ -87,7 +86,7 @@ def test_money_and_percent():
 
 
 def test_arrow_marks_direction():
-    """В Telegram нет цвета, направление показывает стрелка."""
+    """Telegram has no color; the arrow shows the direction."""
     assert formatting.arrow(Decimal("1")) == "▲"
     assert formatting.arrow(Decimal("-1")) == "▼"
     assert formatting.arrow(None) == "•"

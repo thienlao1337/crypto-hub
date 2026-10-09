@@ -1,15 +1,13 @@
-"""Мультиплексор WebSocket-подписок на биржи.
+"""Multiplexer for exchange WebSocket subscriptions.
 
-Задача одна: сколько бы вкладок ни смотрело на BTC/USDT, к бирже держится
-ровно одна подписка на стакан и одна на ленту сделок. Без этого десять
-открытых вкладок дают десять соединений, и биржа начинает ограничивать
-или разрывать их.
+It has one job: no matter how many tabs are watching BTC/USDT, exactly one order book
+subscription and one trade feed subscription are kept open to the exchange. Without it
+ten open tabs mean ten connections, and the exchange starts throttling or dropping them.
 
-Устройство простое: на каждый ключ (биржа, пара, канал) заводится задача,
-которая читает поток и рассылает данные подписчикам через очереди. Когда
-последний подписчик уходит, задача живёт ещё немного — перезагрузка
-страницы не должна приводить к переподключению к бирже, — и только потом
-закрывается.
+The design is simple: for each key (exchange, pair, channel) a task reads the stream and
+fans data out to subscribers through queues. When the last subscriber leaves, the task
+lives a little longer - a page reload shouldn't cause a reconnect to the exchange - and
+only then closes.
 """
 
 import asyncio
@@ -25,20 +23,20 @@ logger = logging.getLogger(__name__)
 CHANNEL_ORDER_BOOK = "orderbook"
 CHANNEL_TRADES = "trades"
 
-# Биржи принимают не любую глубину, а фиксированный набор значений
-# (у Bybit для спота это 1, 50, 200). Запрашиваем допустимую, а
-# показываем столько строк, сколько помещается в панель.
+# Exchanges don't accept any depth, only a fixed set of values (for Bybit spot:
+# 1, 50, 200). We request an allowed depth and show as many rows as fit in the
+# panel.
 ORDER_BOOK_REQUEST_DEPTH = 50
 ORDER_BOOK_DEPTH = 15
 TRADES_KEEP = 30
 
-# Сколько держать подписку без слушателей. Перезагрузка страницы
-# укладывается в этот промежуток, и переподключаться не приходится.
+# How long to keep a subscription with no listeners. A page reload fits within
+# this window, so there's no need to reconnect.
 LINGER_SECONDS = 20
-# Пауза после сбоя, чтобы не долбить биржу в цикле.
+# Pause after a failure so we don't hammer the exchange in a loop.
 RETRY_DELAY = 3.0
-# Размер очереди подписчика: если браузер не успевает читать, старые
-# кадры выбрасываются — в стакане нужен свежий срез, а не история.
+# Subscriber queue size: if the browser can't keep up, old frames are dropped -
+# the order book needs a fresh snapshot, not history.
 QUEUE_SIZE = 4
 
 
@@ -48,8 +46,8 @@ class _Stream:
     subscribers: set[asyncio.Queue] = field(default_factory=set)
     task: asyncio.Task | None = None
     closer: asyncio.TimerHandle | None = None
-    # Последний кадр отдаётся новому подписчику сразу, чтобы он не ждал
-    # следующего обновления с пустым экраном.
+    # The last frame is sent to a new subscriber right away so it doesn't sit
+    # with an empty screen until the next update.
     last_payload: dict[str, Any] | None = None
 
 
@@ -59,12 +57,12 @@ class MarketStreamHub:
         self._clients: dict[str, Any] = {}
         self._lock = asyncio.Lock()
 
-    # --- Публичный интерфейс ---
+    # --- Public interface ---
 
     async def subscribe(
         self, exchange_code: str, symbol: str, channel: str
     ) -> AsyncIterator[dict[str, Any]]:
-        """Поток обновлений по одной паре и каналу."""
+        """Stream of updates for one pair and channel."""
         key = (exchange_code, symbol, channel)
         queue: asyncio.Queue = asyncio.Queue(maxsize=QUEUE_SIZE)
 
@@ -79,7 +77,7 @@ class MarketStreamHub:
             await self._detach(key, queue)
 
     async def close(self) -> None:
-        """Погасить все подписки. Вызывается при остановке приложения."""
+        """Shut down all subscriptions. Called when the application stops."""
         async with self._lock:
             streams = list(self._streams.values())
             self._streams.clear()
@@ -94,10 +92,10 @@ class MarketStreamHub:
             try:
                 await client.close()
             except Exception:
-                logger.debug("Ошибка при закрытии соединения с биржей", exc_info=True)
+                logger.debug("Error while closing the exchange connection", exc_info=True)
         self._clients.clear()
 
-    # --- Внутреннее ---
+    # --- Internals ---
 
     async def _attach(self, key, queue: asyncio.Queue) -> _Stream:
         async with self._lock:
@@ -107,7 +105,7 @@ class MarketStreamHub:
                 self._streams[key] = stream
 
             if stream.closer is not None:
-                # Подписчик вернулся раньше, чем истёк запас — отменяем закрытие.
+                # The subscriber came back before the grace period ran out - cancel the close.
                 stream.closer.cancel()
                 stream.closer = None
 
@@ -153,7 +151,7 @@ class MarketStreamHub:
             try:
                 await client.close()
             except Exception:
-                logger.debug("Ошибка при закрытии %s", exchange_code, exc_info=True)
+                logger.debug("Error while closing %s", exchange_code, exc_info=True)
 
     async def _client(self, exchange_code: str):
         async with self._lock:
@@ -177,7 +175,7 @@ class MarketStreamHub:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                logger.info("Поток %s %s %s прервался: %s", exchange_code, symbol, channel, exc)
+                logger.info("Stream %s %s %s interrupted: %s", exchange_code, symbol, channel, exc)
                 self._broadcast(
                     stream,
                     {"type": channel, "error": f"Поток прерван: {exc}"[:200]},
@@ -215,8 +213,8 @@ class MarketStreamHub:
     def _broadcast(self, stream: _Stream, payload: dict[str, Any]) -> None:
         for queue in list(stream.subscribers):
             if queue.full():
-                # Медленный клиент не должен тормозить остальных: выкидываем
-                # у него самый старый кадр, свежий важнее.
+                # A slow client mustn't hold back the others: drop its oldest
+                # frame, the fresh one matters more.
                 try:
                     queue.get_nowait()
                 except asyncio.QueueEmpty:

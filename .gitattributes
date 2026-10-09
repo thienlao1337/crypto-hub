@@ -1,6 +1,6 @@
-# Код едет в Linux-контейнеры, поэтому в репозитории и в рабочей копии
-# держим LF независимо от системы разработчика: CRLF ломает shell-скрипты
-# внутри образа.
+# The code runs in Linux containers, so the repository and the working copy use
+# LF regardless of the developer's OS: CRLF breaks shell scripts inside the
+# image.
 * text=auto eol=lf
 
 *.png binary

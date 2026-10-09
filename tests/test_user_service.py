@@ -11,7 +11,7 @@ from sqlalchemy import select
 PASSWORD = "sufficiently-long-password"
 
 
-# --- Создание ---
+# --- Creation ---
 
 
 async def test_create_user_normalizes_email(session):
@@ -52,7 +52,7 @@ async def test_password_equal_to_email_rejected(session):
         )
 
 
-# --- Вход ---
+# --- Login ---
 
 
 async def test_authenticate_success(session):
@@ -72,7 +72,7 @@ async def test_authenticate_wrong_password(session):
 
 
 async def test_unknown_email_gives_same_error_as_wrong_password(session):
-    """Сообщения не должны различаться — иначе перебираются чужие адреса."""
+    """The messages must not differ - otherwise other people's addresses can be enumerated."""
     await user_service.create_user(session, email="a@b.com", password=PASSWORD)
     await session.commit()
 
@@ -108,7 +108,7 @@ async def test_failed_attempts_are_recorded(session):
 
     assert len(events) == 2
     assert reasons == {"bad_password", "unknown_email"}
-    # Попытка по несуществующему адресу тоже оставляет след.
+    # An attempt with a non-existent address leaves a trace too.
     assert any(e.user_id is None and e.email == "ghost@b.com" for e in events)
 
 
@@ -132,13 +132,13 @@ async def test_login_throttled_after_repeated_failures(session):
             await user_service.authenticate(session, email="a@b.com", password="wrong-password")
     await session.commit()
 
-    # Даже верный пароль теперь не проходит — до истечения окна.
+    # Now even the correct password doesn't get through - until the window expires.
     with pytest.raises(user_service.TooManyAttempts):
         await user_service.authenticate(session, email="a@b.com", password=PASSWORD)
 
 
 async def test_successful_login_resets_throttle(session):
-    """Давние опечатки не должны копиться и однажды запереть хозяина."""
+    """Old typos must not accumulate and lock out the owner one day."""
     user = await user_service.create_user(session, email="a@b.com", password=PASSWORD)
     await session.commit()
 
@@ -150,7 +150,7 @@ async def test_successful_login_resets_throttle(session):
     await user_service.complete_login(session, user)
     await session.commit()
 
-    # После удачного входа счёт начинается заново.
+    # After a successful login the count starts over.
     for _ in range(user_service.MAX_FAILED_ATTEMPTS - 1):
         with pytest.raises(user_service.InvalidCredentials):
             await user_service.authenticate(session, email="a@b.com", password="wrong-password")
@@ -169,11 +169,11 @@ async def test_throttle_is_per_email(session):
             await user_service.authenticate(session, email="a@b.com", password="wrong-password")
     await session.commit()
 
-    # Соседний аккаунт заблокировать чужими попытками нельзя.
+    # Another account can't be locked by someone else's attempts.
     assert await user_service.authenticate(session, email="other@b.com", password=PASSWORD)
 
 
-# --- Смена пароля ---
+# --- Password change ---
 
 
 async def test_change_password(session):
@@ -198,7 +198,7 @@ async def test_change_password_requires_current(session):
         )
 
 
-# --- Двухфакторная аутентификация ---
+# --- Two-factor authentication ---
 
 
 async def test_totp_setup_flow(session):
@@ -216,7 +216,7 @@ async def test_totp_setup_flow(session):
 
     assert user.totp_enabled
     assert len(codes) == user_service.RECOVERY_CODES_COUNT
-    # В базе только хеши.
+    # Only hashes in the database.
     stored = (await session.execute(select(UserRecoveryCode))).scalars().all()
     assert len(stored) == user_service.RECOVERY_CODES_COUNT
     assert all(c not in {s.code_hash for s in stored} for c in codes)
@@ -290,7 +290,7 @@ async def test_disable_totp_requires_password(session):
     assert await user_service.unused_recovery_codes_count(session, user) == 0
 
 
-# --- Привязка Telegram ---
+# --- Telegram linking ---
 
 
 async def test_telegram_link_flow(session):
@@ -332,7 +332,7 @@ async def test_expired_telegram_code_rejected(session):
         await user_service.link_telegram(session, code=code, telegram_id=1)
 
 
-# --- Первый запуск ---
+# --- First start ---
 
 
 async def test_ensure_owner_creates_first_user(session):
@@ -354,7 +354,7 @@ async def test_ensure_owner_is_idempotent(session):
 
 
 async def test_ensure_owner_does_not_reset_existing_password(session):
-    """Смена SEED_OWNER_PASSWORD не должна перетирать пароль владельца."""
+    """Changing SEED_OWNER_PASSWORD must not overwrite the owner's password."""
     owner = await user_service.ensure_owner(
         session, email="owner@example.com", password=PASSWORD
     )

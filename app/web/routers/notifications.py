@@ -1,4 +1,4 @@
-"""Лента уведомлений и счётчик непрочитанных."""
+"""Notification feed and unread counter."""
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -21,8 +21,8 @@ async def notifications_page(
 ):
     items = await notification_service.recent(session, user, limit=60)
 
-    # Открыв ленту, пользователь их и прочитал — держать счётчик
-    # ненулевым после этого бессмысленно.
+    # Having opened the feed, the user has read them - keeping the counter
+    # non-zero after that is pointless.
     await notification_service.mark_all_read(session, user)
     await session.commit()
 
@@ -42,7 +42,7 @@ async def unread_count(
     user: User = Depends(auth.require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Счётчик для значка в шапке."""
+    """Counter for the badge in the header."""
     return {"unread": await notification_service.unread_count(session, user)}
 
 

@@ -1,8 +1,8 @@
-"""Перевод времени в пояс пользователя.
+"""Converting time to the user's time zone.
 
-Отдельным модулем, потому что нужен и панели, и боту: расхождение времени
-между чатом и сайтом читалось бы как ошибка в данных. Хранится всё в UTC,
-меняется только отображение.
+A separate module because both the panel and the bot need it: a time mismatch between
+the chat and the site would read as a data error. Everything is stored in UTC; only the
+display changes.
 """
 
 from datetime import datetime, timezone
@@ -14,7 +14,7 @@ DEFAULT_TIMEZONE = "UTC"
 
 @lru_cache(maxsize=64)
 def zone(name: str) -> ZoneInfo:
-    """Пояс по имени. Неизвестное имя не должно ронять страницу."""
+    """Time zone by name. An unknown name must not break the page."""
     try:
         return ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError, KeyError):
@@ -22,11 +22,11 @@ def zone(name: str) -> ZoneInfo:
 
 
 def in_zone(value: datetime, name: str | None) -> datetime:
-    """Перевести момент в пояс пользователя.
+    """Convert a moment to the user's time zone.
 
-    Наивное время считаем UTC: всё, что пишет приложение, tz-aware, но
-    драйвер базы в отдельных случаях отдаёт время без пояса, и молча
-    сдвигать его на местный было бы хуже всего.
+    Naive time is treated as UTC: everything the app writes is tz-aware, but in some
+    cases the database driver returns time without a zone, and silently shifting it to
+    local time would be the worst option.
     """
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
@@ -34,18 +34,18 @@ def in_zone(value: datetime, name: str | None) -> datetime:
 
 
 def moment(value: datetime | None, user, fmt: str = "%d.%m %H:%M") -> str:
-    """Отформатировать момент в поясе пользователя."""
+    """Format a moment in the user's time zone."""
     if value is None:
         return "—"
     return in_zone(value, getattr(user, "timezone", None)).strftime(fmt)
 
 
 def to_utc(value: datetime, name: str | None) -> datetime:
-    """Обратный перевод: местное время из формы — в UTC для хранения.
+    """The reverse conversion: local time from a form to UTC for storage.
 
-    Поле datetime-local в браузере отдаёт время без пояса, и оно местное
-    для пользователя, а не для сервера. Считать его UTC значило бы
-    промахнуться ровно на разницу поясов.
+    A datetime-local field in the browser returns time without a zone, and it's local to
+    the user, not the server. Treating it as UTC would be off by exactly the zone
+    difference.
     """
     if value.tzinfo is not None:
         return value.astimezone(timezone.utc)

@@ -1,4 +1,4 @@
-"""Настройки аккаунта: пароль, двухфакторная аутентификация, уведомления."""
+"""Account settings: password, two-factor authentication, notifications."""
 
 from zoneinfo import available_timezones
 
@@ -66,10 +66,10 @@ async def change_theme(
     user: User = Depends(auth.require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Запомнить выбранную тему за аккаунтом.
+    """Remember the chosen theme on the account.
 
-    Отвечает JSON, а не редиректом: переключатель темы срабатывает на
-    любой странице, и уводить с неё из-за смены цвета незачем.
+    Responds with JSON, not a redirect: the theme toggle works on any page, and there's
+    no reason to navigate away because of a color change.
     """
     auth.verify_csrf(request, csrf_token)
 
@@ -113,11 +113,10 @@ async def save_notification_settings(
     user: User = Depends(auth.require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Сохранить матрицу «событие × канал».
+    """Save the "event x channel" matrix.
 
-    Форма читается целиком, а не по одному изменённому флажку: снятая
-    галочка ничего не отправляет, и разобрать её можно только по
-    отсутствию в полном наборе.
+    The form is read as a whole, not one changed checkbox at a time: an unchecked box
+    sends nothing and can only be detected by its absence from the full set.
     """
     auth.verify_csrf(request, csrf_token)
     form = await request.form()
@@ -174,14 +173,14 @@ async def link_telegram(
     user: User = Depends(auth.require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Выдать одноразовый код для привязки чата."""
+    """Issue a one-time code for linking a chat."""
     auth.verify_csrf(request, csrf_token)
 
     code = await user_service.issue_telegram_link_code(session, user)
     await session.commit()
 
-    # Код нужен ровно на одну отрисовку, поэтому кладём его в сессию и
-    # забираем при следующем показе страницы: в адресе ему не место.
+    # The code is needed for exactly one render, so we put it in the session
+    # and take it out on the next page view: it has no place in the URL.
     request.session["telegram_code"] = code
     return RedirectResponse(PAGE, status_code=303)
 
@@ -219,8 +218,8 @@ async def start_totp(
         flash.error(request, str(exc))
         return RedirectResponse(PAGE, status_code=303)
 
-    # Секрет живёт в скрытом поле формы до подтверждения кодом: в сессию
-    # его класть нельзя — cookie подписана, но не зашифрована.
+    # The secret lives in a hidden form field until confirmed with a code: it
+    # must not go into the session - the cookie is signed but not encrypted.
     return templates.TemplateResponse(
         request,
         "app/totp_setup.html",
@@ -247,11 +246,11 @@ async def confirm_totp(
     try:
         codes = await user_service.confirm_totp(session, user, secret=secret, code=code)
     except user_service.UserServiceError as exc:
-        # Здесь отрисовываем страницу заново, а не перенаправляем: иначе
-        # потеряется секрет, и пользователю пришлось бы сканировать новый
-        # QR из-за одной опечатки в коде. Отката не делаем — сервис до
-        # проверки кода ничего не записывает, а незакоммиченное всё равно
-        # исчезнет при закрытии сессии.
+        # Here we re-render the page instead of redirecting: otherwise the
+        # secret would be lost and the user would have to scan a new QR code
+        # because of one typo in the code. No rollback - the service writes
+        # nothing before the code is verified, and anything uncommitted
+        # disappears when the session closes anyway.
         return templates.TemplateResponse(
             request,
             "app/totp_setup.html",

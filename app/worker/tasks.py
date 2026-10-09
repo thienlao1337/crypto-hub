@@ -1,15 +1,14 @@
-"""Фоновые задачи.
+"""Background jobs.
 
-Правило, общее для всех задач ниже: единица работы (одно подключение,
-одна биржа, один пользователь) обрабатывается в своей сессии.
+A rule shared by all jobs below: a unit of work (one connection, one exchange, one user)
+is processed in its own session.
 
-Так сделано не из аккуратности, а по необходимости. Откат помечает все
-загруженные ORM-объекты протухшими, и следующее обращение к любому их
-полю — даже к id в строке журнала — тянет SELECT из синхронного кода,
-что в асинхронном SQLAlchemy падает с MissingGreenlet. При общей сессии
-сбой на первом подключении ронял бы обработку всех остальных. Поэтому
-списки собираются простыми значениями заранее, а объекты загружаются уже
-внутри своей транзакции.
+This isn't done for tidiness but out of necessity. A rollback marks all loaded ORM
+objects as expired, and the next access to any of their fields - even an id in a log
+line - triggers a SELECT from synchronous code, which fails with MissingGreenlet in
+async SQLAlchemy. With a shared session a failure on the first connection would break
+processing of all the others. So lists are collected as plain values up front, and
+objects are loaded inside their own transaction.
 """
 
 import logging
@@ -52,13 +51,13 @@ from app.services import (
 
 logger = logging.getLogger(__name__)
 
-# Пары нужны в первую очередь к стейблкоинам: по ним считается оценка
-# портфеля. Остальные подтянутся, когда дойдёт дело до графиков.
+# Pairs against stablecoins come first: the portfolio valuation is computed
+# from them. The rest will be pulled in when charts need them.
 QUOTE_FILTER = {"USDT", "USDC"}
 
 
 async def refresh_markets() -> None:
-    """Обновить справочник торговых пар. Достаточно раз в сутки."""
+    """Refresh the trading pair reference table. Once a day is enough."""
     for code in await _active_exchange_codes():
         try:
             async with session_scope() as session:
@@ -68,13 +67,13 @@ async def refresh_markets() -> None:
                         session, exchange, adapter, only_quotes=QUOTE_FILTER
                     )
                 await session.commit()
-            logger.info("Пары %s обновлены: %s", code, count)
+            logger.info("Pairs for %s updated: %s", code, count)
         except Exception:
-            logger.exception("Не удалось обновить пары %s", code)
+            logger.exception("Could not update pairs for %s", code)
 
 
 async def refresh_tickers() -> None:
-    """Обновить срез котировок. На нём держится оценка портфеля."""
+    """Refresh the quote snapshot. The portfolio valuation relies on it."""
     for code in await _active_exchange_codes():
         try:
             async with session_scope() as session:
@@ -82,26 +81,25 @@ async def refresh_tickers() -> None:
                 async with CcxtAdapter(code) as adapter:
                     count = await market_service.update_tickers(session, exchange, adapter)
                 await session.commit()
-            logger.debug("Котировки %s обновлены: %s", code, count)
+            logger.debug("Quotes for %s updated: %s", code, count)
         except Exception:
-            logger.exception("Не удалось обновить котировки %s", code)
+            logger.exception("Could not update quotes for %s", code)
 
-    # Переоценка позиций идёт здесь же, а не отдельной задачей: цена
-    # входа и цена «сейчас» должны быть из одного среза котировок,
-    # иначе нереализованный PnL показывает разницу между разными
-    # моментами времени.
+    # Positions are revalued here too, not in a separate job: the entry price
+    # and the "now" price must come from the same quote snapshot, otherwise
+    # unrealized PnL shows the difference between different moments in time.
     try:
         async with session_scope() as session:
             marked = await position_service.mark_positions(session)
             await session.commit()
         if marked:
-            logger.debug("Переоценено позиций: %s", marked)
+            logger.debug("Positions revalued: %s", marked)
     except Exception:
-        logger.exception("Не удалось переоценить позиции")
+        logger.exception("Could not revalue positions")
 
 
 async def sync_balances() -> None:
-    """Обновить балансы по всем действующим подключениям."""
+    """Refresh balances for all active connections."""
     for account_id in await _syncable_account_ids():
         try:
             async with session_scope() as session:
@@ -116,18 +114,17 @@ async def sync_balances() -> None:
                     await session.commit()
                 finally:
                     await adapter.close()
-            logger.debug("Балансы подключения %s: %s монет", account_id, count)
+            logger.debug("Balances of connection %s: %s coins", account_id, count)
         except Exception as exc:
-            logger.warning("Балансы подключения %s не обновлены: %s", account_id, exc)
+            logger.warning("Balances of connection %s not updated: %s", account_id, exc)
             await _remember_error(account_id, exc)
 
 
 async def sync_trades() -> None:
-    """Догрузить историю сделок по парам из списка отслеживания.
+    """Backfill trade history for pairs in the watchlist.
 
-    Биржи не отдают историю «по всем парам сразу», поэтому спрашиваем
-    только то, за чем пользователь следит: иначе на каждую синхронизацию
-    приходились бы сотни запросов.
+    Exchanges don't return history "for all pairs at once", so we only ask for what the
+    user is watching: otherwise every sync would cost hundreds of requests.
     """
     for account_id in await _syncable_account_ids():
         try:
@@ -145,22 +142,22 @@ async def sync_trades() -> None:
                     count = await portfolio_service.sync_trades(
                         session, account, adapter, symbols=symbols
                     )
-                    # Новая сделка меняет среднюю цену входа, поэтому
-                    # позиции пересобираются тут же: разъехавшийся PnL
-                    # до следующего цикла — это неверная цифра на экране.
+                    # A new trade changes the average entry price, so positions
+                    # are rebuilt right away: a PnL that's off until the next
+                    # cycle is a wrong number on screen.
                     await position_service.rebuild_positions(session, account)
                     await session.commit()
                 finally:
                     await adapter.close()
 
             if count:
-                logger.info("Подключение %s: новых сделок %s", account_id, count)
+                logger.info("Connection %s: %s new trades", account_id, count)
         except Exception as exc:
-            logger.warning("Сделки подключения %s не обновлены: %s", account_id, exc)
+            logger.warning("Trades of connection %s not updated: %s", account_id, exc)
 
 
 async def snapshot_portfolios() -> None:
-    """Записать точку графика стоимости для каждого пользователя."""
+    """Record a value chart point for every user."""
     for user_id in await _active_user_ids():
         try:
             async with session_scope() as session:
@@ -171,16 +168,16 @@ async def snapshot_portfolios() -> None:
                 await session.commit()
                 total = snapshot.total_usd if snapshot is not None else None
             if total is not None:
-                logger.debug("Снимок портфеля %s: %s", user_id, total)
+                logger.debug("Portfolio snapshot %s: %s", user_id, total)
         except Exception:
-            logger.exception("Не удалось снять портфель пользователя %s", user_id)
+            logger.exception("Could not snapshot portfolio of user %s", user_id)
 
 
 # --- P2P ---
 
 
 async def sync_p2p_ads() -> None:
-    """Обновить зеркало объявлений по подключениям с доступом к P2P."""
+    """Refresh the ad mirror for connections with P2P access."""
     if not get_settings().p2p_enabled:
         return
 
@@ -194,21 +191,21 @@ async def sync_p2p_ads() -> None:
                 adapter = await p2p_service.build_adapter(session, account)
                 try:
                     count = await p2p_service.sync_ads(session, account, adapter)
-                    # Заказы тянем тем же проходом: отдельная задача ради
-                    # одного запроса к той же площадке лишняя.
+                    # Orders are pulled in the same pass: a separate job for
+                    # one request to the same marketplace would be redundant.
                     orders = await p2p_service.sync_orders(session, account, adapter)
                     await session.commit()
                 finally:
                     await adapter.close()
             logger.debug(
-                "Подключение %s: объявлений %s, заказов %s", account_id, count, orders
+                "Connection %s: %s ads, %s orders", account_id, count, orders
             )
         except Exception as exc:
-            logger.warning("Объявления подключения %s не обновлены: %s", account_id, exc)
+            logger.warning("Ads of connection %s not updated: %s", account_id, exc)
 
 
 async def reprice_p2p() -> None:
-    """Пересчитать цену по каждому запущенному правилу."""
+    """Recompute the price for every running rule."""
     if not get_settings().p2p_enabled:
         return
 
@@ -216,7 +213,7 @@ async def reprice_p2p() -> None:
         try:
             await _reprice_one(ad_id)
         except Exception:
-            logger.exception("Правило объявления %s не отработало", ad_id)
+            logger.exception("Rule for ad %s failed", ad_id)
 
 
 async def _reprice_one(ad_id: int) -> None:
@@ -240,7 +237,7 @@ async def _reprice_one(ad_id: int) -> None:
             event = await p2p_service.apply_rule(session, ad, rule, adapter)
             await session.commit()
             if event is not None:
-                logger.debug("Объявление %s: %s", ad_id, event.event_type)
+                logger.debug("Ad %s: %s", ad_id, event.event_type)
         finally:
             await adapter.close()
 
@@ -267,7 +264,7 @@ async def _active_rule_ad_ids() -> list[int]:
         return [ad_id for (ad_id,) in result]
 
 
-# --- Списки простыми значениями ---
+# --- Lists as plain values ---
 
 
 async def _active_exchange_codes() -> list[str]:
@@ -281,10 +278,10 @@ async def _active_exchange_codes() -> list[str]:
 
 
 async def _syncable_account_ids() -> list[int]:
-    """Подключения, которые имеет смысл опрашивать.
+    """Connections worth polling.
 
-    Ключи, признанные недействительными, пропускаем: биржа всё равно
-    ответит отказом, а лимит запросов израсходуется.
+    Keys deemed invalid are skipped: the exchange would refuse anyway, and the request
+    limit would be spent.
     """
     async with session_scope() as session:
         result = await session.execute(
@@ -303,7 +300,7 @@ async def _active_user_ids() -> list[int]:
         return [user_id for (user_id,) in result]
 
 
-# --- Вспомогательное ---
+# --- Helpers ---
 
 
 async def _exchange_by_code(session, code: str) -> Exchange:
@@ -324,11 +321,11 @@ async def _watchlist_symbols(session, account: ExchangeAccount) -> list[str]:
 
 
 async def _remember_error(account_id: int, exc: Exception) -> None:
-    """Записать причину сбоя отдельной сессией.
+    """Record the failure reason in a separate session.
 
-    Сессия своя, потому что предыдущая уже закрыта неудачей, а сообщение
-    терять нельзя: без него пользователь не поймёт, почему портфель
-    перестал обновляться.
+    A dedicated session because the previous one has already been closed by the failure,
+    and the message must not be lost: without it the user won't understand why the
+    portfolio stopped updating.
     """
     try:
         async with session_scope() as session:
@@ -339,9 +336,9 @@ async def _remember_error(account_id: int, exc: Exception) -> None:
             was_working = account.status != KEY_STATUS_ERROR
             await keys_service.mark_sync_error(session, account, str(exc))
 
-            # Уведомляем только на переходе в сбой. Иначе каждый цикл
-            # синхронизации присылал бы одно и то же, пока ключ не
-            # починят, — и лента превратилась бы в шум.
+            # Notify only on the transition to failure. Otherwise every sync
+            # cycle would send the same thing until the key is fixed - and the
+            # feed would turn into noise.
             if was_working:
                 await notification_service.dispatch(
                     session,
@@ -357,18 +354,18 @@ async def _remember_error(account_id: int, exc: Exception) -> None:
 
             await session.commit()
     except Exception:
-        logger.exception("Не удалось записать ошибку синхронизации подключения %s", account_id)
+        logger.exception("Could not record the sync error for connection %s", account_id)
 
 
-# --- Свечи, сигналы и алерты ---
+# --- Candles, signals and alerts ---
 
 
 async def poll_candles() -> None:
-    """Держать свежими свечи по парам, которые кому-то нужны.
+    """Keep candles fresh for pairs someone needs.
 
-    Качать всё подряд нельзя: пар больше тысячи, а таблица свечей растёт
-    быстро. Берём только то, на чём стоят правила сигналов, алерты и
-    списки отслеживания.
+    Downloading everything isn't an option: there are over a thousand pairs, and the
+    candles table grows fast. We take only what signal rules, alerts and watchlists rely
+    on.
     """
     targets = await _candle_targets()
 
@@ -387,11 +384,11 @@ async def poll_candles() -> None:
                     await candle_service.sync_candles(session, market, timeframe, adapter)
                 await session.commit()
         except Exception:
-            logger.exception("Не удалось обновить свечи пары %s", market_id)
+            logger.exception("Could not update candles for pair %s", market_id)
 
 
 async def evaluate_signals() -> None:
-    """Посчитать правила сигналов по свежим свечам."""
+    """Evaluate signal rules on fresh candles."""
     async with session_scope() as session:
         rule_ids = [rule.id for rule in await signal_service.active_rules(session)]
 
@@ -412,48 +409,48 @@ async def evaluate_signals() -> None:
                     )
                     if signal is not None:
                         logger.info(
-                            "Сигнал %s по %s: %s",
+                            "Signal %s for %s: %s",
                             signal.direction, market.symbol, signal.reason,
                         )
                         await _notify_signal(session, rule, signal, market.symbol)
                 await session.commit()
         except Exception:
-            logger.exception("Правило сигналов %s не отработало", rule_id)
+            logger.exception("Signal rule %s failed", rule_id)
 
 
 async def evaluate_signal_outcomes() -> None:
-    """Проверить, сыграли ли сигналы, у которых истёк горизонт."""
+    """Check whether signals whose horizon has passed played out."""
     try:
         async with session_scope() as session:
             count = await signal_service.evaluate_outcomes(session)
             await session.commit()
         if count:
-            logger.info("Оценено сигналов: %s", count)
+            logger.info("Signals scored: %s", count)
     except Exception:
-        logger.exception("Не удалось оценить результаты сигналов")
+        logger.exception("Could not score signal results")
 
 
 async def evaluate_alerts() -> None:
-    """Проверить условия алертов и разослать сработавшие."""
+    """Check alert conditions and send the triggered ones."""
     try:
         async with session_scope() as session:
             fired = await alert_service.evaluate_all(session)
             await session.commit()
         for trigger in fired:
-            logger.info("Алерт сработал: %s", trigger.message)
+            logger.info("Alert triggered: %s", trigger.message)
     except Exception:
-        logger.exception("Не удалось проверить алерты")
+        logger.exception("Could not check alerts")
 
 
 async def _notify_signal(session, rule: SignalRule, signal, symbol: str) -> None:
-    """Положить сигнал в ленту тем, кто следит за этой парой.
+    """Put the signal in the feed of those who watch this pair.
 
-    Для общего правила (user_id пуст) адресаты определяются списками
-    отслеживания: рассылать всем подряд сигнал по чужой паре незачем.
+    For a shared rule (user_id empty) recipients are determined by watchlists: there's
+    no point sending everyone a signal on someone else's pair.
 
-    Нейтральный вердикт остаётся на экране сигналов и уведомления не
-    порождает: «мы посмотрели и решили не входить» — это не то, ради чего
-    стоит звонить в Telegram среди ночи.
+    A neutral verdict stays on the signals screen and doesn't produce a notification:
+    "we looked and decided not to enter" isn't worth ringing Telegram in the middle of
+    the night.
     """
     if signal.direction == DIRECTION_NEUTRAL:
         return
@@ -481,31 +478,31 @@ async def _notify_signal(session, rule: SignalRule, signal, symbol: str) -> None
 
 
 async def refresh_global_stats() -> None:
-    """Снять общерыночные показатели для дашборда."""
+    """Fetch market-wide metrics for the dashboard."""
     try:
         async with session_scope() as session:
             snapshot = await dashboard_service.refresh_global_stats(session)
             await session.commit()
         if snapshot is not None:
             logger.info(
-                "Показатели рынка обновлены: капитализация %s, индекс %s",
+                "Market metrics updated: market cap %s, index %s",
                 snapshot.total_market_cap_usd,
                 snapshot.fng_value,
             )
     except Exception:
-        logger.exception("Не удалось обновить общерыночные показатели")
+        logger.exception("Could not update market-wide metrics")
 
 
-# Сигнал, пролежавший дольше этого, стратегия не отрабатывает: после
-# простоя бот не должен разом открывать позиции по вчерашним поводам.
+# A signal older than this isn't acted on by the strategy: after downtime the
+# bot shouldn't suddenly open positions for yesterday's reasons.
 SIGNAL_MAX_AGE = timedelta(minutes=30)
 
 
 async def run_autotrade() -> None:
-    """Отработать свежие сигналы активными стратегиями.
+    """Act on fresh signals with active strategies.
 
-    Глобальный рубильник проверяется и здесь, и в сервисе: задача просто
-    не должна ничего делать при выключенном автотрейдинге.
+    The global kill switch is checked both here and in the service: the job simply
+    shouldn't do anything when auto-trading is off.
     """
     if not get_settings().autotrade_enabled:
         return
@@ -520,7 +517,7 @@ async def run_autotrade() -> None:
         try:
             await _run_strategy(strategy_id)
         except Exception:
-            logger.exception("Стратегия %s не отработала", strategy_id)
+            logger.exception("Strategy %s failed", strategy_id)
 
 
 async def _run_strategy(strategy_id: int) -> None:
@@ -535,17 +532,18 @@ async def _run_strategy(strategy_id: int) -> None:
             Signal.market_id == strategy.market_id,
             Signal.created_at >= since,
         )
-        # Берём только то, что стратегия ещё не разбирала. Раньше отбор шёл
-        # по отсутствию ордера, и сигнал, на котором она отказалась
-        # действовать, попадал в выборку снова на каждом проходе.
+        # Take only what the strategy hasn't reviewed yet. Previously the
+        # selection was based on the absence of an order, and a signal the
+        # strategy declined to act on was picked up again on every pass.
         if strategy.last_signal_id is not None:
             query = query.where(Signal.id > strategy.last_signal_id)
 
         pending = await session.execute(query.order_by(Signal.id))
         signals = list(pending.scalars())
 
-        # Выход проверяем в любом случае, даже когда новых сигналов нет:
-        # стоп-лосс на то и стоп, что срабатывает сам, а не по сигналу.
+        # Exits are checked regardless, even when there are no new signals: a
+        # stop-loss is a stop precisely because it fires on its own, not on a
+        # signal.
         position = await autotrade_service.open_position(session, strategy)
         if not signals and position is None:
             return
@@ -559,7 +557,7 @@ async def _run_strategy(strategy_id: int) -> None:
             closed = await autotrade_service.check_exits(session, strategy, adapter=adapter)
             if closed is not None:
                 logger.info(
-                    "Стратегия %s: позиция закрыта по уровню, результат %s",
+                    "Strategy %s: position closed at exit level, result %s",
                     strategy.id, closed.realized_pnl,
                 )
 
@@ -569,7 +567,7 @@ async def _run_strategy(strategy_id: int) -> None:
                 )
                 if order is not None:
                     logger.info(
-                        "Стратегия %s: ордер %s %s по сигналу %s",
+                        "Strategy %s: order %s %s on signal %s",
                         strategy.id, order.side, order.amount, signal.id,
                     )
             await session.commit()
@@ -579,7 +577,7 @@ async def _run_strategy(strategy_id: int) -> None:
 
 
 async def _candle_targets() -> list[tuple[int, int]]:
-    """Пары и таймфреймы, по которым нужны свечи."""
+    """Pairs and timeframes that need candles."""
     async with session_scope() as session:
         targets: set[tuple[int, int]] = set()
 
@@ -591,7 +589,7 @@ async def _candle_targets() -> list[tuple[int, int]]:
             if market_id is not None:
                 targets.add((market_id, timeframe_id))
                 continue
-            # Правило без конкретной пары считается по списку отслеживания.
+            # A rule without a specific pair is evaluated against the watchlist.
             watched = await session.execute(
                 select(WatchlistItem.market_id).where(
                     WatchlistItem.user_id == user_id
@@ -602,7 +600,7 @@ async def _candle_targets() -> list[tuple[int, int]]:
             for (watched_market_id,) in watched:
                 targets.add((watched_market_id, timeframe_id))
 
-        # Алертам нужен свой таймфрейм для RSI и изменения за период.
+        # Alerts need their own timeframe for RSI and period change.
         alert_timeframe = await session.execute(
             select(Timeframe.id).where(Timeframe.code == alert_service.ALERT_TIMEFRAME)
         )

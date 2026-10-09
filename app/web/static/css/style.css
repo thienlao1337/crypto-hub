@@ -1,18 +1,18 @@
-/* Crypto Hub — дизайн-система.
+/* Crypto Hub - design system.
  *
- * Тёмная тема — основная: длинные сессии за терминалом на светлом фоне
- * утомляют глаза. Светлая включается переключателем и живёт в
+ * The dark theme is the primary one: long sessions at a terminal on a light background
+ * tire the eyes. The light theme is turned on with a toggle and lives in
  * [data-theme="light"].
  *
- * Зелёный и красный зарезервированы исключительно под рост и падение
- * цены. Ничто другое — ни кнопки, ни статусы, ни ошибки форм — этими
- * цветами не красится, иначе интерфейс начинает врать про знак PnL.
+ * Green and red are reserved exclusively for price rises and falls.
+ * Nothing else - no buttons, no statuses, no form errors - uses these
+ * colors, otherwise the interface starts lying about the sign of PnL.
  */
 
 :root {
   color-scheme: dark;
 
-  /* Поверхности */
+  /* Surfaces */
   --bg: #0b0e14;
   --surface: #151922;
   --surface-2: #1c212c;
@@ -20,12 +20,12 @@
   --border: #242a38;
   --border-strong: #333b4d;
 
-  /* Текст */
+  /* Text */
   --text: #e6eaf2;
   --text-muted: #8b93a7;
   --text-dim: #5c6478;
 
-  /* Акцент */
+  /* Accent */
   --accent: #7c5cff;
   --accent-2: #22d3ee;
   --accent-hover: #8f74ff;
@@ -33,20 +33,20 @@
   --accent-soft: rgba(124, 92, 255, 0.14);
   --accent-ring: rgba(124, 92, 255, 0.35);
 
-  /* Направление цены — только для этого */
+  /* Price direction - for this only */
   --up: #26d086;
   --down: #ff4d6a;
   --up-soft: rgba(38, 208, 134, 0.12);
   --down-soft: rgba(255, 77, 106, 0.12);
 
-  /* Служебные состояния */
+  /* Service states */
   --warn: #f5a524;
   --warn-soft: rgba(245, 165, 36, 0.12);
   --danger: #ff6b6b;
   --danger-soft: rgba(255, 107, 107, 0.1);
 
-  /* Заливка под линией графика: график рисуется на canvas и цвета
-     читает отсюда, поэтому они объявлены токенами, а не в скрипте. */
+  /* Fill under the chart line: the chart is drawn on canvas and reads
+     colors from here, so they're declared as tokens rather than in the script. */
   --chart-area-top: rgba(124, 92, 255, 0.28);
   --chart-area-bottom: rgba(124, 92, 255, 0.02);
 
@@ -111,7 +111,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Цифры не должны прыгать при обновлении котировки. */
+/* Digits must not jump when a quote updates. */
 .num,
 input[type="number"],
 td.num,
@@ -163,14 +163,14 @@ p {
   font-size: 0.86rem;
 }
 
-/* --- Вход и регистрация: одна центрированная карточка --- */
+/* --- Login and registration: a single centered card --- */
 
 .auth-shell {
   min-height: 100vh;
   display: grid;
   place-items: center;
   padding: 24px 16px;
-  /* Мягкое свечение акцентом, чтобы пустой экран не выглядел провалом. */
+  /* A soft accent glow so an empty screen doesn't look like a failure. */
   background:
     radial-gradient(1000px 500px at 50% -20%, var(--accent-soft), transparent 70%),
     var(--bg);
@@ -208,7 +208,7 @@ p {
   white-space: nowrap;
 }
 
-/* --- Формы --- */
+/* --- Forms --- */
 
 .field {
   margin-bottom: 16px;
@@ -251,7 +251,7 @@ input::placeholder {
   color: var(--text-dim);
 }
 
-/* Код из приложения-аутентификатора: крупно, моноширинно, по центру. */
+/* Code from the authenticator app: large, monospaced, centered. */
 .code-input {
   font-family: var(--font-mono);
   font-size: 1.5rem;
@@ -306,9 +306,9 @@ input::placeholder {
   cursor: not-allowed;
 }
 
-/* --- Сообщения ---
- * Ошибки — нейтральный красноватый --danger, а не --down: знак цены и
- * ошибка формы не должны читаться одним цветом.
+/* --- Messages ---
+ * Errors use a neutral reddish --danger, not --down: a price sign and
+ * a form error must not read as the same color.
  */
 
 .flash {
@@ -338,7 +338,7 @@ input::placeholder {
   color: var(--text);
 }
 
-/* --- Служебное --- */
+/* --- Utilities --- */
 
 .form-footer {
   margin-top: 20px;
@@ -353,7 +353,7 @@ input::placeholder {
   position: fixed;
   top: 14px;
   right: 16px;
-  /* Выше липкой шапки: иначе кнопка оказывается под ней при скролле. */
+  /* Above the sticky header: otherwise the button ends up under it when scrolling. */
   z-index: 20;
   width: 34px;
   height: 34px;
@@ -361,8 +361,8 @@ input::placeholder {
   place-items: center;
   padding: 0;
   border-radius: 50%;
-  /* Не --surface: на страницах приложения шапка того же цвета, и кнопка
-     на ней пропадала бы. */
+  /* Not --surface: on app pages the header has the same color, and the button
+     would disappear on it. */
   background: var(--surface-2);
   border: 1px solid var(--border-strong);
   color: var(--text-muted);
@@ -405,7 +405,7 @@ input::placeholder {
   color: var(--text-muted);
 }
 
-/* --- Каркас приложения --- */
+/* --- App shell --- */
 
 .topbar {
   display: flex;
@@ -423,8 +423,8 @@ input::placeholder {
 .topbar .brand {
   margin-bottom: 0;
   color: var(--text);
-  /* Логотип не сжимается: иначе название переносится на вторую строку,
-     а липкая шапка меняет высоту. */
+  /* The logo doesn't shrink: otherwise the name wraps to a second line
+     and the sticky header changes height. */
   flex: none;
 }
 .topbar .brand:hover {
@@ -436,13 +436,13 @@ input::placeholder {
   gap: 4px;
   margin-right: auto;
   margin-left: 12px;
-  /* Не переносим пункты на вторую строку: шапка липкая, и её высота не
-     должна прыгать. На узком экране меню прокручивается вбок. */
+  /* Menu items don't wrap to a second line: the header is sticky and its height
+     must not jump. On a narrow screen the menu scrolls sideways. */
   overflow-x: auto;
   scrollbar-width: none;
-  /* Без этого прокрутка не включается: флекс-элемент по умолчанию не
-     сжимается меньше своего содержимого и распирает всю страницу вбок
-     вместо того, чтобы прокручиваться внутри себя. */
+  /* Without this scrolling doesn't kick in: a flex item by default doesn't
+     shrink below its content and stretches the whole page sideways
+     instead of scrolling within itself. */
   min-width: 0;
 }
 
@@ -468,14 +468,14 @@ input::placeholder {
   display: flex;
   align-items: center;
   gap: 12px;
-  /* Кнопка выхода не должна упираться в переключатель темы. */
+  /* The logout button must not bump into the theme toggle. */
   margin-right: 44px;
-  /* Правая группа не сжимается: сжиматься должно меню, оно для этого и
-     прокручивается. */
+  /* The right group doesn't shrink: the menu should shrink - that's why
+     it scrolls. */
   flex: none;
 }
 
-/* --- Таблицы --- */
+/* --- Tables --- */
 
 .table-scroll {
   overflow-x: auto;
@@ -509,7 +509,7 @@ input::placeholder {
   border-bottom: none;
 }
 
-/* Ссылка-приглашение длинная: даём перенести её, а не растягивать таблицу. */
+/* The invite link is long: let it wrap rather than stretch the table. */
 .link-cell {
   font-size: 0.82rem;
   word-break: break-all;
@@ -523,7 +523,7 @@ input::placeholder {
   padding: 24px;
 }
 
-/* Cockpit-сетка: карточки заполняют ширину, важное видно без скролла. */
+/* Cockpit grid: cards fill the width, the important stuff is visible without scrolling. */
 .card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -564,15 +564,15 @@ input::placeholder {
     padding-left: 16px;
     padding-right: 16px;
   }
-  /* Адрес владельца на телефоне съедает половину шапки и ничего не
-     сообщает: кто вошёл, видно по самому факту входа. */
+  /* The owner's address eats half the header on a phone and tells nothing:
+     who's logged in is obvious from the fact of being logged in. */
   .topbar-right .user-email {
     display: none;
   }
-  /* На узком экране меню уезжает на вторую строку и получает всю
-     ширину. В одну строку ему остаётся около сотни пикселей — один
-     пункт, и остальные приходится нащупывать прокруткой. Высота шапки
-     при этом не прыгает: строк всегда две. */
+  /* On a narrow screen the menu moves to a second line and gets the full
+     width. On one line it would have about a hundred pixels - one
+     item, with the rest found only by scrolling. The header height
+     doesn't jump either: there are always two lines. */
   .topbar {
     flex-wrap: wrap;
     row-gap: 8px;
@@ -588,7 +588,7 @@ input::placeholder {
   }
 }
 
-/* --- Заголовок раздела с действием справа --- */
+/* --- Section title with an action on the right --- */
 
 .page-head {
   display: flex;
@@ -611,7 +611,7 @@ input::placeholder {
   color: var(--danger);
 }
 
-/* --- Показатели --- */
+/* --- Metrics --- */
 
 .stat-value {
   font-size: 2rem;
@@ -668,7 +668,7 @@ input::placeholder {
   accent-color: var(--accent);
 }
 
-/* --- Переключатель периода --- */
+/* --- Period switcher --- */
 
 .segmented {
   display: inline-flex;
@@ -702,10 +702,10 @@ input::placeholder {
   margin-top: 12px;
 }
 
-/* --- Круговая диаграмма ---
- * Категориальные цвета намеренно не включают зелёный и красный: они
- * заняты направлением цены, и монета в легенде не должна читаться как
- * «выросла».
+/* --- Pie chart ---
+ * Categorical colors deliberately exclude green and red: they're
+ * taken by price direction, and a coin in the legend must not read as
+ * "went up".
  */
 
 :root {
@@ -731,7 +731,7 @@ input::placeholder {
   height: 120px;
   border-radius: 50%;
   flex: none;
-  /* Дырка посередине — маской, чтобы не городить SVG. */
+  /* The hole in the middle is a mask, to avoid building an SVG. */
   -webkit-mask: radial-gradient(circle, transparent 54%, #000 55%);
   mask: radial-gradient(circle, transparent 54%, #000 55%);
 }
@@ -762,7 +762,7 @@ input::placeholder {
   margin-left: auto;
 }
 
-/* Уважаем системную настройку: анимации выключаются целиком. */
+/* Respect the system setting: animations are turned off entirely. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -772,7 +772,7 @@ input::placeholder {
   }
 }
 
-/* Компактная таблица внутри карточки: сравнение бирж, короткие сводки. */
+/* Compact table inside a card: exchange comparison, short summaries. */
 .table.compact th,
 .table.compact td {
   padding: 5px 8px 5px 0;
@@ -783,7 +783,7 @@ input::placeholder {
   display: flex;
   gap: 14px;
   flex-wrap: wrap;
-  /* Без этого узкая колонка в page-head сжимает подписи в столбец. */
+  /* Without this a narrow column in page-head squeezes labels into a column. */
   flex: 1 1 320px;
   justify-content: flex-end;
 }
@@ -794,7 +794,7 @@ input::placeholder {
   color: var(--text-muted);
 }
 
-/* --- Стакан и лента сделок --- */
+/* --- Order book and trade feed --- */
 
 .orderbook td,
 .tape td {
@@ -803,7 +803,7 @@ input::placeholder {
   position: relative;
 }
 
-/* Полоса за строкой показывает объём: глубину видно, не читая цифр. */
+/* A bar behind the row shows volume: depth is visible without reading the numbers. */
 .orderbook tr.up td:first-child::before,
 .orderbook tr.down td:first-child::before {
   content: "";
@@ -830,7 +830,7 @@ input::placeholder {
   border-bottom: 1px solid var(--border);
 }
 
-/* --- Сигналы --- */
+/* --- Signals --- */
 
 .signal-list {
   display: grid;
@@ -842,8 +842,8 @@ input::placeholder {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface-2);
-  /* Полоса слева повторяет направление: зелёный и красный здесь уместны,
-     это и есть знак движения цены. */
+  /* The bar on the left repeats the direction: green and red are appropriate here,
+     this is exactly the sign of price movement. */
   border-left-width: 3px;
 }
 
@@ -855,9 +855,9 @@ input::placeholder {
   border-left-color: var(--down);
 }
 
-/* Нейтральный вердикт — не движение цены, поэтому и не зелёный и не
-   красный: акцентный цвет говорит «система смотрела», а не «расти» или
-   «падать». */
+/* A neutral verdict isn't a price move, so it's neither green nor
+   red: the accent color says "the system looked", not "rise" or
+   "fall". */
 .signal.neutral {
   border-left-color: var(--accent-2);
 }
@@ -905,7 +905,7 @@ input::placeholder {
   margin-left: auto;
 }
 
-/* --- Значок уведомлений --- */
+/* --- Notification badge --- */
 
 .bell {
   position: relative;
@@ -931,7 +931,7 @@ input::placeholder {
   min-width: 16px;
   padding: 0 4px;
   border-radius: 999px;
-  /* Акцент, а не красный: непрочитанное — не ошибка и не падение цены. */
+  /* Accent, not red: unread isn't an error or a price drop. */
   background: var(--accent);
   color: #fff;
   font-family: var(--font-mono);
@@ -940,7 +940,7 @@ input::placeholder {
   text-align: center;
 }
 
-/* --- Индекс страха и жадности --- */
+/* --- Fear & Greed index --- */
 
 .fng {
   display: flex;
@@ -956,9 +956,9 @@ input::placeholder {
   line-height: 1;
 }
 
-/* Шкала от страха к жадности. Красный и зелёный здесь не про цену, но
-   значение то же по смыслу — настроение рынка, — и другого прочтения
-   у этой шкалы нет. */
+/* Scale from fear to greed. Red and green here aren't about price, but
+   the meaning is the same - market sentiment - and this scale has
+   no other reading. */
 .fng-bar {
   position: relative;
   height: 6px;
@@ -978,7 +978,7 @@ input::placeholder {
   background: var(--text);
 }
 
-/* --- Формы в две колонки и блок результата --- */
+/* --- Two-column forms and result block --- */
 
 .field-row {
   display: grid;
@@ -996,7 +996,7 @@ input::placeholder {
   margin-top: 0;
 }
 
-/* --- Журнал бота --- */
+/* --- Bot log --- */
 
 .journal {
   display: grid;
@@ -1022,9 +1022,9 @@ input::placeholder {
     grid-template-columns: 1fr;
     gap: 2px;
   }
-  /* Поясняющая строка внутри таблицы: на узком экране колонка под неё
-     сжимается до пары слов в строке, и подсказка мешает больше, чем
-     помогает. Название события говорит само за себя. */
+  /* An explanatory line inside the table: on a narrow screen its column
+     shrinks to a couple of words per line, and the hint hurts more than
+     it helps. The event name speaks for itself. */
   .hint-narrow {
     display: none;
   }

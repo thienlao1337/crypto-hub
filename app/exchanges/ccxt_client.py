@@ -1,10 +1,10 @@
-"""Адаптер биржи поверх ccxt.
+"""Exchange adapter on top of ccxt.
 
-Одна реализация на Bybit и Binance: символы, ошибки и модель данных у
-ccxt унифицированы, а различия сведены к нескольким местам ниже.
+One implementation for Bybit and Binance: ccxt unifies symbols, errors and the data
+model, and the differences are reduced to a few places below.
 
-Экземпляр держит открытую http-сессию, поэтому его обязательно закрывать.
-Используйте как асинхронный контекстный менеджер.
+An instance holds an open http session, so it must be closed. Use it as an async context
+manager.
 """
 
 import logging
@@ -36,7 +36,7 @@ SUPPORTED = (EXCHANGE_BYBIT, EXCHANGE_BINANCE)
 
 
 class CcxtAdapter:
-    """Обёртка над одним подключением к бирже."""
+    """Wrapper around a single exchange connection."""
 
     def __init__(
         self,
@@ -52,11 +52,11 @@ class CcxtAdapter:
         self.code = exchange_code
         self.testnet = testnet
 
-        # Обеим биржам грузим только спот. Иначе ccxt тянет ещё и
-        # опционы (Bybit) и маржинальные пары (Binance): лишние запросы,
-        # лишние точки отказа, а маржинальный эндпоинт Binance к тому же
-        # требует прав, которых у ключа «только чтение» может не быть —
-        # и проверка обычного ключа падала с невнятной ошибкой.
+        # Load only spot markets for both exchanges. Otherwise ccxt also pulls
+        # options (Bybit) and margin pairs (Binance): extra requests, extra
+        # points of failure, and Binance's margin endpoint also requires
+        # permissions a read-only key may not have - so checking a regular key
+        # failed with an obscure error.
         options: dict = {"defaultType": "spot", "fetchMarkets": ["spot"]}
 
         factory = getattr(ccxt, exchange_code)
@@ -64,8 +64,8 @@ class CcxtAdapter:
             {
                 "apiKey": api_key or "",
                 "secret": api_secret or "",
-                # ccxt сам выдерживает паузы между запросами — без этого
-                # публичные лимиты выбираются за секунды.
+                # ccxt spaces out requests itself - without that the public
+                # limits are used up in seconds.
                 "enableRateLimit": True,
                 "options": options,
             }
@@ -82,14 +82,14 @@ class CcxtAdapter:
     async def close(self) -> None:
         await self._client.close()
 
-    # --- Проверка ключа ---
+    # --- Key check ---
 
     async def check_key(self) -> KeyCheck:
-        """Убедиться, что ключ рабочий, и выяснить права на торговлю.
+        """Make sure the key works and find out whether it can trade.
 
-        Право на торговлю подтверждается только явным ответом биржи.
-        Не удалось выяснить — считаем, что права нет: выдавать доступ к
-        реальным сделкам по догадке нельзя.
+        Trading permission is confirmed only by an explicit exchange response. If it
+        can't be determined, we assume there is no permission: access to live trading
+        must never be granted on a guess.
         """
         try:
             await self._client.fetch_balance()
@@ -110,10 +110,10 @@ class CcxtAdapter:
                 is_valid=False, error="Не удалось связаться с биржей. Попробуйте позже."
             )
         except ccxt.BaseError as exc:
-            # Текст ccxt здесь — это обычно сырой URL запроса вместе с
-            # подписью. В интерфейс такое отдавать нельзя: пользователю
-            # непонятно, а подпись в разметке не нужна.
-            logger.warning("Проверка ключа %s не удалась: %s", self.code, exc)
+            # The ccxt message here is usually the raw request URL together
+            # with the signature. That must not reach the UI: it means nothing
+            # to the user, and the signature has no place in the markup.
+            logger.warning("Key check for %s failed: %s", self.code, exc)
             return KeyCheck(
                 is_valid=False,
                 error=(
@@ -126,11 +126,11 @@ class CcxtAdapter:
         return KeyCheck(is_valid=True, can_trade=can_trade, permissions_known=known)
 
     async def _probe_trading_permission(self) -> tuple[bool, bool]:
-        """Спросить у биржи, разрешена ли ключу торговля.
+        """Ask the exchange whether the key is allowed to trade.
 
-        Эндпоинты у бирж разные и меняются, поэтому вызов защищён: при
-        любой неожиданности возвращаем «неизвестно», а вызывающий код
-        трактует это как отсутствие права.
+        Endpoints differ between exchanges and change over time, so the call is guarded:
+        on anything unexpected we return "unknown", and the caller treats that as no
+        permission.
         """
         try:
             if self.code == EXCHANGE_BYBIT:
@@ -149,15 +149,15 @@ class CcxtAdapter:
                 response = await method()
                 return bool(response.get("enableSpotAndMarginTrading")), True
         except ccxt.BaseError as exc:
-            logger.info("Не удалось выяснить права ключа %s: %s", self.code, exc)
+            logger.info("Could not determine permissions of key %s: %s", self.code, exc)
             return False, False
         except Exception:
-            logger.exception("Сбой при проверке прав ключа %s", self.code)
+            logger.exception("Failure while checking permissions of key %s", self.code)
             return False, False
 
         return False, False
 
-    # --- Данные аккаунта ---
+    # --- Account data ---
 
     async def fetch_balances(self) -> list[BalanceEntry]:
         raw = await self._call(self._client.fetch_balance)
@@ -170,8 +170,8 @@ class CcxtAdapter:
         for asset, total in totals.items():
             total_dec = to_decimal(total) or Decimal(0)
             if total_dec <= 0:
-                # Нулевые остатки биржи отдают сотнями — в портфеле они
-                # только мешают.
+                # Exchanges return zero balances by the hundred - they only
+                # clutter the portfolio.
                 continue
             entries.append(
                 BalanceEntry(
@@ -223,19 +223,19 @@ class CcxtAdapter:
         side: str,
         amount: Decimal,
     ) -> OrderResult:
-        """Выставить рыночный ордер.
+        """Place a market order.
 
-        Только рыночные: лимитный требует управления жизненным циклом
-        заявки, а стратегии из ТЗ входят и выходят по рынку.
+        Market orders only: a limit order needs order lifecycle management, while the
+        strategies in the spec enter and exit at market.
         """
         if side not in ("buy", "sell"):
             raise ExchangeError(f"Неизвестное направление ордера: {side}")
 
-        # Объём приходит из расчёта доли депозита и выглядит как
-        # 0.05358804425365755979124688685 — биржа такой ордер отклонит
-        # целиком: она принимает только кратное своему шагу лота. Шаг
-        # знает ccxt, но для этого нужен загруженный справочник
-        # инструментов; load_markets кэширует, так что вызов дешёвый.
+        # The amount comes from a deposit-share calculation and looks like
+        # 0.05358804425365755979124688685 - the exchange would reject such an
+        # order outright: it only accepts multiples of its lot step. ccxt knows
+        # the step, but that requires the loaded instrument list; load_markets
+        # caches it, so the call is cheap.
         await self._call(self._client.load_markets)
         rounded = to_decimal(self._client.amount_to_precision(symbol, float(amount)))
 
@@ -260,7 +260,7 @@ class CcxtAdapter:
             raw=raw.get("info") or {},
         )
 
-    # --- Рыночные данные (ключи не нужны) ---
+    # --- Market data (no keys needed) ---
 
     async def fetch_markets(self) -> list[MarketInfo]:
         raw = await self._call(self._client.load_markets)
@@ -336,13 +336,13 @@ class CcxtAdapter:
             )
         return bars
 
-    # --- Общая обработка ошибок ---
+    # --- Common error handling ---
 
     async def _call(self, method, *args):
-        """Свести ошибки ccxt к нашим типам.
+        """Map ccxt errors to our own types.
 
-        Вызывающему коду важно различать три случая: ключ плохой (чинить
-        руками), лимит (подождать), сеть недоступна (повторить позже).
+        The caller needs to tell three cases apart: bad key (fix by hand), rate limit
+        (wait), network down (retry later).
         """
         try:
             return await method(*args)
@@ -366,11 +366,11 @@ class CcxtAdapter:
             ) from exc
 
     def _explain(self, exc: Exception, message: str) -> str:
-        """Человеческое сообщение наружу, подробности — в журнал.
+        """A human-readable message for the outside, details to the log.
 
-        Текст ccxt — это обычно URL запроса вместе с подписью и служебным
-        JSON. Такое попадает в last_error и оттуда в интерфейс, где оно
-        бесполезно пользователю и ничего не объясняет.
+        The ccxt message is usually the request URL with the signature and service JSON.
+        It ends up in last_error and from there in the UI, where it is useless to the
+        user and explains nothing.
         """
         logger.warning("%s: %s", self.code, exc)
         return message
@@ -391,7 +391,7 @@ def _from_millis(value) -> datetime:
 
 
 def _as_int(value) -> int | None:
-    """ccxt отдаёт точность то целым, то шагом вида 0.001."""
+    """ccxt reports precision either as an integer or as a step like 0.001."""
     if value is None:
         return None
     try:

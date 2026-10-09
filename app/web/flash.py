@@ -1,16 +1,14 @@
-"""Сообщения между запросами.
+"""Messages between requests.
 
-Нужны для схемы «отправил — перенаправил — показал»: обработчик формы
-после ошибки не отрисовывает страницу сам, а кладёт сообщение сюда и
-отправляет браузер на GET.
+Needed for the "submit - redirect - show" pattern: after an error the form handler
+doesn't render the page itself, it puts the message here and sends the browser to a GET.
 
-Так решается конкретная проблема: session.rollback() помечает все
-загруженные ORM-объекты протухшими, и следующее обращение к любому их
-полю тянет SELECT из синхронного кода — в асинхронном SQLAlchemy это
-падает с MissingGreenlet. После редиректа запрос начинается с чистой
-сессией, и протухших объектов просто нет.
+This solves a specific problem: session.rollback() marks all loaded ORM objects as
+expired, and the next access to any of their fields triggers a SELECT from synchronous
+code - in async SQLAlchemy that fails with MissingGreenlet. After a redirect the request
+starts with a clean session, and there are simply no expired objects.
 
-Побочная польза: обновление страницы не отправляет форму повторно.
+A side benefit: refreshing the page doesn't resubmit the form.
 """
 
 from starlette.requests import Request
@@ -41,6 +39,6 @@ def warn(request: Request, text: str) -> None:
 
 
 def pop_flashes(request: Request) -> list[dict]:
-    """Забрать сообщения и очистить очередь — показываются они один раз."""
+    """Take the messages and clear the queue - they're shown once."""
     messages = request.session.pop(SESSION_KEY, None) or []
     return messages

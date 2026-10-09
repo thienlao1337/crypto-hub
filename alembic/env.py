@@ -15,11 +15,10 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Без этих двух флагов автогенерация сравнивает только наличие столбцов и
-# их обязательность: расхождение в типе (Numeric(20, 8) против
-# Numeric(30, 2)) или в значении по умолчанию она молча пропустит. Для
-# проекта, который считает деньги, тихое расхождение схемы с моделями —
-# худший вид ошибки.
+# Without these two flags autogenerate only compares column presence and
+# nullability: it silently skips a type mismatch (Numeric(20, 8) vs Numeric(30,
+# 2)) or a different default. For a project that handles money, a silent drift
+# between the schema and the models is the worst kind of bug.
 COMPARE_OPTIONS = {"compare_type": True, "compare_server_default": True}
 
 settings = get_settings()

@@ -1,17 +1,17 @@
-"""Автотрейдинг: стратегии, исполнение и лимиты риска.
+"""Auto-trading: strategies, execution and risk limits.
 
-Устройство подчинено одному требованию: ошибка здесь стоит денег
-пользователя, поэтому по умолчанию не происходит ничего.
+The design follows one requirement: a mistake here costs the user money, so by default
+nothing happens.
 
-Три уровня защиты, каждый из которых достаточен сам по себе:
-1. Глобальный рубильник AUTOTRADE_ENABLED — выключен по умолчанию.
-2. Режим стратегии: paper (сделки только в базе), testnet (тестовая сеть
-   биржи), live (реальные деньги). Стартует всегда с paper.
-3. Переход в live требует записанного времени явного подтверждения и
-   ключа биржи, которому сама биржа подтвердила право на торговлю.
+Three layers of protection, each sufficient on its own:
+1. The global AUTOTRADE_ENABLED kill switch - off by default.
+2. Strategy mode: paper (trades only in the database), testnet (the exchange's test
+   network), live (real money). Always starts in paper.
+3. Switching to live requires a recorded time of explicit confirmation and an exchange
+   key whose trading permission the exchange itself confirmed.
 
-Плюс дневной лимит убытка: при его достижении стратегия останавливает
-себя сама и пишет причину в журнал.
+Plus a daily loss limit: when it's reached, the strategy stops itself and logs the
+reason.
 """
 
 import logging
@@ -58,9 +58,9 @@ EVENT_MODE = "mode_changed"
 
 MODES = (MODE_PAPER, MODE_TESTNET, MODE_LIVE)
 
-# Ордер бота описывает позицию целиком: открытие пишет строку, закрытие
-# проставляет ей цену выхода и результат. Держать вход и выход двумя
-# записями значило бы каждый раз сшивать их обратно.
+# A bot order describes the whole position: opening writes a row, closing fills
+# in its exit price and result. Keeping entry and exit as two rows would mean
+# stitching them back together every time.
 STATUS_NEW = "new"
 STATUS_OPEN = "filled"
 STATUS_CLOSED = "closed"
@@ -71,12 +71,12 @@ EXIT_SIGNAL = "обратный сигнал"
 
 
 class AutotradeError(Exception):
-    """Стратегию нельзя создать или запустить в таком виде."""
+    """The strategy can't be created or started in this form."""
 
 
 @dataclass(frozen=True)
 class Decision:
-    """Что стратегия решила сделать по сигналу."""
+    """What the strategy decided to do on a signal."""
 
     action: str  # open | close | skip
     reason: str
@@ -84,7 +84,7 @@ class Decision:
     amount: Decimal | None = None
 
 
-# --- Стратегии ---
+# --- Strategies ---
 
 
 async def list_strategies(session: AsyncSession, user: User) -> list[tuple[Strategy, str]]:
@@ -115,10 +115,10 @@ def validate(
     stop_loss_pct: Decimal | None,
     take_profit_pct: Decimal | None,
 ) -> None:
-    """Проверить параметры до сохранения.
+    """Validate parameters before saving.
 
-    Границы намеренно узкие: стратегия, которой разрешено ставить весь
-    депозит в одну сделку, — не стратегия, а способ потерять деньги.
+    The bounds are deliberately narrow: a strategy allowed to put the whole deposit into
+    one trade isn't a strategy but a way to lose money.
     """
     if not (Decimal("0.1") <= position_size_pct <= Decimal(50)):
         raise AutotradeError("Размер позиции — от 0.1% до 50% депозита.")
@@ -148,7 +148,7 @@ async def create_strategy(
     stop_loss_pct: Decimal | None = None,
     take_profit_pct: Decimal | None = None,
 ) -> Strategy:
-    """Создать стратегию. Всегда выключенной и всегда в режиме paper."""
+    """Create a strategy. Always disabled and always in paper mode."""
     validate(
         position_size_pct=position_size_pct,
         max_pct_per_trade=max_pct_per_trade,
@@ -189,10 +189,10 @@ async def create_strategy(
 async def set_mode(
     session: AsyncSession, user: User, strategy: Strategy, mode: str
 ) -> None:
-    """Сменить режим.
+    """Change the mode.
 
-    Переход в live — единственное место, где появляется доступ к
-    реальным деньгам, поэтому здесь проверяется всё сразу.
+    Switching to live is the only place where access to real money appears, so
+    everything is checked here at once.
     """
     if mode not in MODES:
         raise AutotradeError("Неизвестный режим.")
@@ -217,13 +217,13 @@ async def set_mode(
             payload={"market_id": strategy.market_id},
         )
     else:
-        # Выход из live гасит подтверждение: следующий переход туда
-        # потребует нового осознанного действия.
+        # Leaving live clears the confirmation: switching back will require a
+        # new deliberate action.
         strategy.live_confirmed_at = None
 
     previous, strategy.mode = strategy.mode, mode
-    # Смена режима всегда останавливает стратегию: запускать её обратно
-    # пользователь должен сам, уже понимая, в каком она режиме.
+    # Changing the mode always stops the strategy: the user must restart it
+    # themselves, knowing which mode it's in.
     strategy.is_active = False
 
     await journal(
@@ -249,11 +249,11 @@ async def set_active(session: AsyncSession, strategy: Strategy, active: bool) ->
     await session.flush()
 
 
-# --- Риск ---
+# --- Risk ---
 
 
 async def risk_state(session: AsyncSession, strategy: Strategy) -> RiskState:
-    """Состояние риска за сегодня, при необходимости заводится заново."""
+    """Today's risk state, created afresh if needed."""
     today = datetime.now(timezone.utc).date()
     result = await session.execute(
         select(RiskState).where(
@@ -272,10 +272,10 @@ async def risk_state(session: AsyncSession, strategy: Strategy) -> RiskState:
 async def register_result(
     session: AsyncSession, strategy: Strategy, pnl_pct: Decimal
 ) -> RiskState:
-    """Учесть результат сделки и остановить стратегию при переборе.
+    """Account for a trade result and stop the strategy if the limit is exceeded.
 
-    Лимит проверяется после каждой сделки, а не раз в день: смысл
-    ограничения в том, чтобы остановиться до того, как убыток вырастет.
+    The limit is checked after every trade, not once a day: the point of the limit is to
+    stop before the loss grows.
     """
     state = await risk_state(session, strategy)
     state.realized_pnl_pct += pnl_pct
@@ -290,8 +290,8 @@ async def register_result(
         state.halted_at = datetime.now(timezone.utc)
         strategy.is_active = False
         await journal(session, strategy, EVENT_HALTED, state.halted_reason)
-        # Бот остановил себя сам — молча этого делать нельзя: человек
-        # должен узнать об этом не из журнала при следующем заходе.
+        # The bot stopped itself - that must not happen silently: the person
+        # should find out some other way than from the log on their next visit.
         await notification_service.dispatch(
             session,
             user_id=strategy.user_id,
@@ -305,7 +305,7 @@ async def register_result(
     return state
 
 
-# --- Исполнение ---
+# --- Execution ---
 
 
 def decide(
@@ -317,14 +317,14 @@ def decide(
     has_open_position: bool,
     min_amount: Decimal | None = None,
 ) -> Decision:
-    """Что делать по сигналу. Чистая функция — её проверяет тест.
+    """What to do on a signal. Pure function - covered by a test.
 
-    Стратегия работает на споте и держит не больше одной позиции: покупка
-    её открывает, продажа закрывает. Продажа при пустой позиции — это не
-    «шорт», а продажа монет самого пользователя, поэтому она отклоняется.
+    The strategy trades spot and holds at most one position: a buy opens it, a sell
+    closes it. Selling with no open position isn't a "short" but selling the user's own
+    coins, so it is rejected.
 
-    Размер позиции считается от оценки депозита, а не от свободного
-    остатка: иначе после серии сделок объём незаметно уплывает.
+    Position size is computed from the deposit valuation, not the free balance:
+    otherwise the size quietly drifts after a series of trades.
     """
     if price <= 0:
         return Decision(action="skip", reason="Нет текущей цены.")
@@ -355,9 +355,9 @@ def decide(
     if amount <= 0:
         return Decision(action="skip", reason="Расчётный объём нулевой.")
 
-    # Минимальный лот проверяем во всех режимах, включая бумажный: сделка
-    # объёмом ниже минимума на бирже не состоялась бы, и записывать её в
-    # бумажный результат значило бы обещать прибыль, которой не будет.
+    # The minimum lot is checked in all modes, including paper: a trade below
+    # the exchange minimum wouldn't have happened, and recording it in the
+    # paper result would promise profit that won't materialize.
     if min_amount is not None and amount < min_amount:
         return Decision(
             action="skip",
@@ -379,12 +379,11 @@ def decide(
 
 
 def exit_reason(order: BotOrder, price: Decimal) -> str | None:
-    """Достигнут ли уровень выхода. Чистая функция.
+    """Whether an exit level has been reached. Pure function.
 
-    Стоп проверяется раньше тейка: если внутри одного интервала цена
-    успела задеть оба уровня, порядок событий нам неизвестен, и считать
-    надо по худшему. Обратное допущение делало бы отчётность стратегии
-    приятнее реальности.
+    The stop is checked before the take: if the price touched both levels within one
+    interval, we don't know the order of events and must assume the worse. The opposite
+    assumption would make the strategy's reports nicer than reality.
     """
     if price is None or price <= 0:
         return None
@@ -396,7 +395,7 @@ def exit_reason(order: BotOrder, price: Decimal) -> str | None:
 
 
 def position_pnl(order: BotOrder, exit_price: Decimal) -> tuple[Decimal, Decimal]:
-    """Результат позиции: в долларах и в процентах от вложенного."""
+    """Position result: in dollars and as a percentage of the amount invested."""
     entry = order.price or Decimal(0)
     if entry <= 0:
         return Decimal(0), Decimal(0)
@@ -407,17 +406,17 @@ def position_pnl(order: BotOrder, exit_price: Decimal) -> tuple[Decimal, Decimal
 
 
 def mark_considered(strategy: Strategy, signal: Signal) -> None:
-    """Запомнить, что этот сигнал уже разобран.
+    """Remember that this signal has already been processed.
 
-    Отметка только растёт: сигналы приходят по возрастанию номера, и
-    откат назад означал бы повторный разбор старого.
+    The marker only grows: signals arrive in increasing id order, and moving back would
+    mean re-processing old ones.
     """
     if strategy.last_signal_id is None or signal.id > strategy.last_signal_id:
         strategy.last_signal_id = signal.id
 
 
 async def open_position(session: AsyncSession, strategy: Strategy) -> BotOrder | None:
-    """Незакрытая позиция стратегии, если она есть."""
+    """The strategy's open position, if any."""
     result = await session.execute(
         select(BotOrder)
         .where(
@@ -438,10 +437,11 @@ async def execute(
     *,
     adapter: ExchangeAdapter | None = None,
 ) -> BotOrder | None:
-    """Исполнить решение по сигналу.
+    """Execute the decision for a signal.
 
-    В режиме paper биржа не дёргается вовсе: ордер записывается в базу с
-    ценой из последней котировки. В testnet и live уходит рыночный ордер.
+    In paper mode the exchange isn't touched at all: the order is written to the
+    database at the price of the latest quote. In testnet and live a market order is
+    sent.
     """
     if not settings.autotrade_enabled:
         await journal(
@@ -453,9 +453,9 @@ async def execute(
     if not strategy.is_active:
         return None
 
-    # Дальше любая ветка что-нибудь пишет в журнал про этот сигнал, и
-    # рассмотреть его надо ровно один раз: иначе следующий проход
-    # повторит ту же запись, и так все полчаса, пока сигнал свежий.
+    # From here on every branch logs something about this signal, and it must
+    # be reviewed exactly once: otherwise the next pass repeats the same entry,
+    # and so on for half an hour while the signal is fresh.
     mark_considered(strategy, signal)
 
     state = await risk_state(session, strategy)
@@ -536,8 +536,8 @@ async def execute(
     order.external_order_id = result.external_id
     order.status = result.status
     order.price = result.average_price or price
-    # Биржа округляет объём под свой шаг лота: в базе должно остаться то,
-    # что она приняла, иначе расчёт результата разойдётся с реальностью.
+    # The exchange rounds the amount to its lot step: the database must keep
+    # what it accepted, otherwise the result calculation drifts from reality.
     order.amount = result.amount
     order.raw = result.raw or None
     session.add(order)
@@ -557,11 +557,11 @@ async def check_exits(
     *,
     adapter: ExchangeAdapter | None = None,
 ) -> BotOrder | None:
-    """Закрыть позицию, если цена дошла до стопа или тейка.
+    """Close the position if the price reached the stop or the take.
 
-    Вызывается каждым проходом, а не только при новом сигнале: уровни
-    выхода на то и уровни, что срабатывают сами по себе. Без этой
-    проверки стоп-лосс был бы числом в базе, а не защитой.
+    Called on every pass, not only on a new signal: exit levels are meant to fire on
+    their own. Without this check a stop-loss would be a number in the database, not
+    protection.
     """
     position = await open_position(session, strategy)
     if position is None:
@@ -590,12 +590,12 @@ async def close_position(
     *,
     adapter: ExchangeAdapter | None = None,
 ) -> BotOrder | None:
-    """Закрыть позицию и учесть результат в дневном лимите.
+    """Close the position and account for the result in the daily limit.
 
-    Результат считается в процентах от депозита, а не от самой позиции:
-    дневной лимит убытка в ТЗ — доля депозита, и стоп в 2% на позиции
-    размером в 5% депозита стоит 0.1%, а не 2%. Перепутать эти величины
-    значило бы останавливать бота в двадцать раз раньше срока.
+    The result is computed as a percentage of the deposit, not of the position itself:
+    the daily loss limit in the spec is a share of the deposit, and a 2% stop on a
+    position worth 5% of the deposit costs 0.1%, not 2%. Mixing these up would stop the
+    bot twenty times too early.
     """
     if order is None:
         return None
@@ -661,15 +661,15 @@ async def _sellable_amount(
     base: "Asset | None",
     wanted: Decimal,
 ) -> Decimal | None:
-    """Сколько монеты реально можно продать при закрытии.
+    """How much of the coin can actually be sold when closing.
 
-    Продать ровно купленное обычно нельзя: комиссию биржа часто удерживает
-    самой монетой, и на балансе оказывается чуть меньше, чем в ордере.
-    Заявка на полный объём возвращает «недостаточно средств», и позиция
-    остаётся открытой — со снятым стоп-лоссом, о котором никто не знает.
+    Selling exactly what was bought usually isn't possible: the exchange often takes the
+    fee in the coin itself, so the balance ends up slightly smaller than the order. An
+    order for the full amount returns "insufficient funds", and the position stays open -
+    with its stop-loss gone and nobody aware of it.
 
-    Поэтому объём ограничивается свободным остатком. None означает, что
-    закрывать нечем и причина уже записана в журнал.
+    So the amount is capped at the free balance. None means there's nothing to close
+    with and the reason has already been logged.
     """
     if base is None:
         return wanted
@@ -677,9 +677,9 @@ async def _sellable_amount(
     try:
         balances = await adapter.fetch_balances()
     except Exception as exc:
-        # Остаток узнать не удалось — пробуем закрыть полным объёмом:
-        # отказ биржи попадёт в журнал следующим шагом.
-        logger.warning("Не удалось получить баланс перед закрытием: %s", exc)
+        # Couldn't get the balance - try closing with the full amount: an
+        # exchange rejection will be logged in the next step.
+        logger.warning("Could not get balance before closing: %s", exc)
         return wanted
 
     free = next(
@@ -713,11 +713,10 @@ async def journal(
     *,
     payload: dict | None = None,
 ) -> BotJournalEntry:
-    """Записать действие бота.
+    """Record a bot action.
 
-    По ТЗ журнал ведётся полностью: и выставленный ордер, и отказ, и
-    ошибка. Пользователь должен видеть, почему бот сделал или не сделал
-    то, чего он ждал.
+    Per the spec the log is complete: placed orders, rejections and errors alike. The
+    user must be able to see why the bot did or didn't do what they expected.
     """
     entry = BotJournalEntry(
         strategy_id=strategy.id,
@@ -755,10 +754,10 @@ async def recent_orders(
 
 
 def _num(value: Decimal | None) -> str:
-    """Число в сообщении журнала без хвоста нулей.
+    """A number in a log message without trailing zeros.
 
-    Numeric(36, 18) возвращает 79903.000000000000000000, и в журнале это
-    читается как сбой, а не как цена.
+    Numeric(36, 18) returns 79903.000000000000000000, and in the log that reads as a
+    glitch, not a price.
     """
     if value is None:
         return "—"
@@ -768,7 +767,7 @@ def _num(value: Decimal | None) -> str:
 def _level(
     price: Decimal, pct: Decimal | None, side: str, *, stop: bool
 ) -> Decimal | None:
-    """Цена стоп-лосса или тейк-профита от цены входа."""
+    """Stop-loss or take-profit price from the entry price."""
     if pct is None:
         return None
 

@@ -1,7 +1,7 @@
-"""Криптографические примитивы: шифрование секретов, пароли, TOTP.
+"""Cryptographic primitives: secret encryption, passwords, TOTP.
 
-Единственное место в проекте, где живут ключи и хеши. Всё остальное
-работает через эти функции и не знает деталей.
+The only place in the project where keys and hashes live. Everything else goes through
+these functions and doesn't know the details.
 """
 
 import base64
@@ -18,14 +18,14 @@ from app.config import get_settings
 
 
 class EncryptionNotConfigured(RuntimeError):
-    """ENCRYPTION_KEY не задан или задан некорректно."""
+    """ENCRYPTION_KEY is not set or is invalid."""
 
 
 class DecryptionFailed(RuntimeError):
-    """Значение не расшифровывается текущим ключом."""
+    """The value can't be decrypted with the current key."""
 
 
-# --- Шифрование секретов (API-ключи бирж, TOTP-секреты) ---
+# --- Secret encryption (exchange API keys, TOTP secrets) ---
 
 
 @lru_cache
@@ -46,15 +46,15 @@ def _fernet() -> Fernet:
 
 
 def encrypt_secret(value: str) -> str:
-    """Зашифровать секрет для хранения в базе."""
+    """Encrypt a secret for storage in the database."""
     return _fernet().encrypt(value.encode("utf-8")).decode("ascii")
 
 
 def decrypt_secret(token: str) -> str:
-    """Расшифровать секрет из базы.
+    """Decrypt a secret from the database.
 
-    Падает, если ключ сменили: дамп базы без ENCRYPTION_KEY бесполезен,
-    в этом и смысл — но и восстановить такие записи нельзя.
+    Fails if the key was changed: a database dump without ENCRYPTION_KEY is useless,
+    which is the point - but such rows can't be recovered either.
     """
     try:
         return _fernet().decrypt(token.encode("ascii")).decode("utf-8")
@@ -64,16 +64,15 @@ def decrypt_secret(token: str) -> str:
         ) from exc
 
 
-# --- Пароли ---
+# --- Passwords ---
 
 
 def _prepare_password(password: str) -> bytes:
-    """Свернуть пароль в фиксированные 44 байта перед bcrypt.
+    """Fold the password into a fixed 44 bytes before bcrypt.
 
-    bcrypt обрезает вход на 72 байтах: без предварительного хеширования
-    длинная парольная фраза молча теряет хвост, и два разных пароля с
-    общим началом становятся одним. SHA-256 + base64 снимает это
-    ограничение — тот же приём использует схема bcrypt_sha256.
+    bcrypt truncates input at 72 bytes: without pre-hashing, a long passphrase silently
+    loses its tail, and two different passwords with a common prefix become one. SHA-256
+    + base64 removes that limit - the same trick the bcrypt_sha256 scheme uses.
     """
     digest = hashlib.sha256(password.encode("utf-8")).digest()
     return base64.b64encode(digest)
@@ -87,11 +86,11 @@ def verify_password(password: str, password_hash: str) -> bool:
     try:
         return bcrypt.checkpw(_prepare_password(password), password_hash.encode("ascii"))
     except (ValueError, TypeError):
-        # Битый или подменённый хеш в базе — не повод ронять форму входа.
+        # A broken or tampered hash in the database is no reason to crash the login form.
         return False
 
 
-# --- Двухфакторная аутентификация (TOTP) ---
+# --- Two-factor authentication (TOTP) ---
 
 
 def generate_totp_secret() -> str:
@@ -99,15 +98,15 @@ def generate_totp_secret() -> str:
 
 
 def totp_provisioning_uri(secret: str, email: str, issuer: str) -> str:
-    """Строка для QR-кода, которую понимают Google Authenticator и аналоги."""
+    """The string for the QR code understood by Google Authenticator and similar apps."""
     return pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name=issuer)
 
 
 def verify_totp(secret: str, code: str) -> bool:
-    """Проверить одноразовый код.
+    """Verify a one-time code.
 
-    valid_window=1 допускает расхождение часов на один шаг (±30 секунд) —
-    без этого пользователи с неточным временем на телефоне не войдут.
+    valid_window=1 tolerates a clock drift of one step (±30 seconds) - without it users
+    whose phone clock is off won't be able to log in.
     """
     if not code or not code.strip():
         return False
@@ -117,22 +116,22 @@ def verify_totp(secret: str, code: str) -> bool:
         return False
 
 
-# --- Одноразовые коды и токены ---
+# --- One-time codes and tokens ---
 
 
 def generate_recovery_code() -> str:
-    """Код восстановления в читаемом виде: 4f3a-9c21-be07."""
+    """Recovery code in readable form: 4f3a-9c21-be07."""
     raw = secrets.token_hex(6)
     return "-".join(raw[i : i + 4] for i in range(0, len(raw), 4))
 
 
 def hash_recovery_code(code: str) -> str:
-    """Хешировать код восстановления.
+    """Hash a recovery code.
 
-    Здесь SHA-256, а не bcrypt: код генерируем мы, в нём 48 бит
-    случайности, подбор по хешу нереален. Медленный хеш нужен паролям,
-    которые придумывает человек, а проверка десяти кодов через bcrypt
-    заметно тормозила бы вход.
+    SHA-256 rather than bcrypt here: we generate the code, it has 48 bits of randomness,
+    and brute-forcing it from the hash is unrealistic. A slow hash is for passwords
+    people make up, and checking ten codes through bcrypt would noticeably slow down
+    login.
     """
     return hashlib.sha256(_normalize_code(code).encode("utf-8")).hexdigest()
 
@@ -146,10 +145,10 @@ def _normalize_code(code: str) -> str:
 
 
 def generate_token(length: int = 32) -> str:
-    """Случайный токен для инвайтов и кодов привязки Telegram."""
+    """Random token for invites and Telegram linking codes."""
     return secrets.token_urlsafe(length)
 
 
 def generate_numeric_code(digits: int = 6) -> str:
-    """Короткий числовой код — его пользователь перепечатывает вручную."""
+    """A short numeric code - the user retypes it by hand."""
     return "".join(secrets.choice("0123456789") for _ in range(digits))

@@ -1,7 +1,7 @@
 """ticker quote volume
 
-Оборот в валюте котировки: сортировать рынки по объёму в монетах
-бессмысленно, у мемкоинов количество измеряется триллионами.
+Turnover in the quote currency: sorting markets by volume in coins is meaningless, since
+memecoin amounts are measured in trillions.
 
 Revision ID: d67a112f641f
 Revises: 0002

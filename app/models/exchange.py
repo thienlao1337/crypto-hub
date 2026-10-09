@@ -14,7 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 
-# Статусы ключа — результат проверки у биржи, не пользовательский ввод.
+# Key statuses are the result of a check with the exchange, not user input.
 KEY_STATUS_PENDING = "pending"
 KEY_STATUS_OK = "ok"
 KEY_STATUS_INVALID = "invalid"
@@ -22,7 +22,7 @@ KEY_STATUS_ERROR = "error"
 
 
 class Exchange(Base):
-    """Справочник бирж — редактируется из админки."""
+    """Exchange reference table - edited from the admin panel."""
 
     __tablename__ = "exchanges"
 
@@ -37,11 +37,10 @@ class Exchange(Base):
 
 
 class ExchangeAccount(Base):
-    """Подключённый API-ключ пользователя к бирже.
+    """A user's API key connected to an exchange.
 
-    Ключ и секрет хранятся только в зашифрованном виде (Fernet, ключ из
-    ENCRYPTION_KEY). В открытом виде не логируются и в шаблоны не
-    передаются — в UI показывается api_key_masked.
+    The key and secret are stored only encrypted (Fernet, key from ENCRYPTION_KEY). They
+    are never logged or passed to templates in plain text - the UI shows api_key_masked.
     """
 
     __tablename__ = "exchange_accounts"
@@ -54,21 +53,22 @@ class ExchangeAccount(Base):
 
     api_key_enc: Mapped[str] = mapped_column(Text, nullable=False)
     api_secret_enc: Mapped[str] = mapped_column(Text, nullable=False)
-    # Хвост ключа для опознания в интерфейсе, без расшифровки.
+    # Tail of the key for recognizing it in the UI, without decryption.
     api_key_masked: Mapped[str] = mapped_column(String(64), nullable=False)
 
     is_testnet: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    # requested_trading — чего хотел пользователь при добавлении ключа.
-    # allow_trading — что биржа реально подтвердила при проверке прав.
-    # Торговля разрешается только когда истинны оба.
+    # requested_trading - what the user asked for when adding the key.
+    # allow_trading - what the exchange actually confirmed during the
+    # permission check.
+    # Trading is allowed only when both are true.
     requested_trading: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     allow_trading: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    # То же самое для P2P: у обеих бирж эти эндпоинты закрыты, пока
-    # аккаунт не получил статус мерчанта или рекламодателя. Права
-    # разные, поэтому и флаги отдельные: ключ с правом торговли на споте
-    # к объявлениям доступа не даёт.
+    # Same for P2P: on both exchanges these endpoints stay closed until the
+    # account gets merchant or advertiser status. The permissions are
+    # different, hence separate flags: a key with spot trading permission gives
+    # no access to ads.
     requested_p2p: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     allow_p2p: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 

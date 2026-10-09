@@ -1,8 +1,8 @@
-"""Конвертер и калькулятор сделки.
+"""Converter and trade calculator.
 
-Расчёты — чистые функции над Decimal: их проверяет тест, а не глаз.
-Округление сознательно оставлено на выводе: промежуточные величины
-считаются с полной точностью, иначе комиссия «съедается» округлением.
+Calculations are pure functions over Decimal: checked by tests, not by eye. Rounding is
+deliberately left to the output: intermediate values are computed at full precision,
+otherwise rounding "eats" the fee.
 """
 
 from dataclasses import dataclass
@@ -14,7 +14,7 @@ from app.services import market_service
 
 
 class ToolsError(Exception):
-    """Некорректный ввод — сообщение уйдёт пользователю."""
+    """Invalid input - the message goes to the user."""
 
 
 @dataclass(frozen=True)
@@ -47,7 +47,7 @@ class TradeResult:
 async def convert(
     session: AsyncSession, *, amount: Decimal, source: str, target: str
 ) -> Conversion:
-    """Перевести количество одной монеты в другую через цену в долларах."""
+    """Convert an amount of one coin into another via the dollar price."""
     source = source.strip().upper()
     target = target.strip().upper()
     if not source or not target:
@@ -82,10 +82,10 @@ def calculate_trade(
     exit_price: Decimal,
     fee_pct: Decimal,
 ) -> TradeResult:
-    """Результат сделки с учётом комиссии на входе и выходе.
+    """Trade result including the fee on entry and exit.
 
-    Комиссия берётся дважды — при покупке и при продаже. Считать её один
-    раз, как часто делают на калькуляторах, значит завышать прибыль.
+    The fee is charged twice - on the buy and on the sell. Counting it once, as
+    calculators often do, overstates the profit.
     """
     if amount <= 0:
         raise ToolsError("Количество должно быть больше нуля.")
@@ -106,13 +106,13 @@ def calculate_trade(
     exit_fee = exit_proceeds * fee_rate
     total_fees = entry_fee + exit_fee
 
-    # Для короткой позиции прибыль даёт падение цены.
+    # For a short position, profit comes from a falling price.
     gross_pnl = (
         exit_proceeds - entry_cost if side == "buy" else entry_cost - exit_proceeds
     )
     net_pnl = gross_pnl - total_fees
 
-    # Цена, при которой сделка выходит в ноль после обеих комиссий.
+    # The price at which the trade breaks even after both fees.
     if side == "buy":
         breakeven = entry_price * (1 + fee_rate) / (1 - fee_rate)
     else:
@@ -136,7 +136,7 @@ def calculate_trade(
 
 
 def parse_decimal(raw: str, field: str) -> Decimal:
-    """Разобрать число из формы, прощая запятую и пробелы."""
+    """Parse a number from a form, forgiving commas and spaces."""
     text = (raw or "").strip().replace(" ", "").replace(" ", "").replace(",", ".")
     if not text:
         raise ToolsError(f"Заполните поле «{field}».")

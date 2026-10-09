@@ -1,9 +1,8 @@
 """notification web visibility
 
-Признак показа уведомления в ленте панели. Нужен, чтобы каналы «панель»
-и «Telegram» отключались независимо: таблица уведомлений одновременно и
-лента, и очередь отправки, поэтому «только в Telegram» без отдельного
-флага выразить нечем.
+Flag for showing a notification in the panel feed. Needed so the "panel" and "Telegram"
+channels can be turned off independently: the notifications table is both the feed and
+the send queue, so "Telegram only" can't be expressed without a separate flag.
 
 Revision ID: 0007
 Revises: 0006
@@ -23,14 +22,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # server_default обязателен: в таблице уже есть строки, и NOT NULL
-    # без значения по умолчанию свалил бы миграцию на боевой базе.
-    # Старые уведомления в ленте показывались все — значит, true.
+    # server_default is required: the table already has rows, and NOT NULL
+    # without a default would fail the migration on the production database.
+    # All old notifications used to be shown in the feed - hence true.
     op.add_column(
         'notifications',
         sa.Column('show_web', sa.Boolean(), nullable=False, server_default=sa.true()),
     )
-    # Значение по умолчанию нужно было только для заполнения старых строк.
+    # The default was only needed to fill existing rows.
     op.alter_column('notifications', 'show_web', server_default=None)
 
 

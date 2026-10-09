@@ -116,7 +116,7 @@ async def test_invite_without_ttl_never_expires(session, owner):
 
 
 async def test_weak_password_does_not_consume_invite(session, owner):
-    """Отказ по паролю не должен сжигать приглашение."""
+    """A password rejection must not burn the invite."""
     invite = await invite_service.create_invite(session, created_by=owner)
     await session.commit()
     code = invite.code
@@ -127,7 +127,7 @@ async def test_weak_password_does_not_consume_invite(session, owner):
         )
     await session.rollback()
 
-    # После отката объекты в сессии протухли — перечитываем из базы.
+    # After the rollback the session objects expired - re-read from the database.
     refreshed = await invite_service.get_by_code(session, code)
     assert refreshed.used_at is None
 

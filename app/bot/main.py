@@ -1,7 +1,7 @@
-"""Telegram-бот: зеркало веб-функций.
+"""Telegram bot: a mirror of the web features.
 
-Отдельный процесс, как и worker. Бот и панель работают с одними и теми
-же сервисами, поэтому цифры в чате и на сайте не расходятся.
+A separate process, like the worker. The bot and the panel use the same services, so the
+numbers in chat and on the site never diverge.
 """
 
 import asyncio
@@ -26,14 +26,14 @@ settings = get_settings()
 def build_dispatcher() -> Dispatcher:
     dispatcher = Dispatcher()
 
-    # Порядок важен: сессия должна появиться раньше, чем её попросит
-    # слой пользователя, а перехват ошибок — обернуть оба.
+    # Order matters: the session must exist before the user layer asks for it,
+    # and error handling must wrap both.
     dispatcher.message.middleware(middlewares.ErrorsMiddleware())
     dispatcher.message.middleware(middlewares.DbSessionMiddleware())
     dispatcher.message.middleware(middlewares.UserMiddleware())
 
-    # Обработчик по умолчанию из common ловит всё подряд, поэтому
-    # подключается последним.
+    # The default handler from common catches everything, so it is registered
+    # last.
     dispatcher.include_router(data.router)
     dispatcher.include_router(common.router)
     return dispatcher
@@ -44,12 +44,12 @@ async def main() -> None:
 
     if not settings.bot_token:
         logger.error(
-            "BOT_TOKEN не задан — бот не работает. "
-            "Получите токен у @BotFather и укажите его в .env, "
-            "затем перезапустите: docker compose restart bot"
+            "BOT_TOKEN is not set - the bot is not running. "
+            "Get a token from @BotFather, put it in .env, "
+            "then restart: docker compose restart bot"
         )
-        # Просто выйти нельзя: docker перезапустит контейнер, и журнал
-        # забьётся одной и той же строкой. Останавливаемся и ждём.
+        # We can't just exit: docker would restart the container and the log
+        # would fill up with the same line. Stop and wait instead.
         await asyncio.Event().wait()
         return
 
@@ -60,11 +60,11 @@ async def main() -> None:
     dispatcher = build_dispatcher()
 
     me = await bot.get_me()
-    logger.info("Бот @%s запущен", me.username)
+    logger.info("Bot @%s started", me.username)
 
     try:
-        # Накопившиеся за простой сообщения пропускаем: отвечать на
-        # команду недельной давности незачем.
+        # Skip messages that piled up during downtime: there's no point
+        # answering a week-old command.
         await bot.delete_webhook(drop_pending_updates=True)
         await dispatcher.start_polling(bot)
     finally:

@@ -1,4 +1,4 @@
-"""Инструменты, котировки и оценка активов в долларах."""
+"""Instruments, quotes and valuation of assets in dollars."""
 
 import logging
 from decimal import Decimal
@@ -12,9 +12,9 @@ from app.models.market import MARKET_TYPE_SPOT
 
 logger = logging.getLogger(__name__)
 
-# Стейблкоины считаем равными доллару. Отклонения от привязки бывают, но
-# ловить их котировкой каждого стейбла к доллару — отдельная задача,
-# которая на оценку портфеля влияет в пределах долей процента.
+# Stablecoins are treated as equal to the dollar. Depegs happen, but catching
+# them by quoting every stablecoin against the dollar is a separate task that
+# affects the portfolio valuation by fractions of a percent.
 STABLECOINS = frozenset({"USDT", "USDC", "BUSD", "DAI", "TUSD", "FDUSD", "USD"})
 
 
@@ -51,10 +51,10 @@ async def sync_markets(
     *,
     only_quotes: set[str] | None = None,
 ) -> int:
-    """Обновить список торговых пар биржи.
+    """Refresh the exchange's list of trading pairs.
 
-    only_quotes ограничивает набор валютой котировки: пар на бирже больше
-    тысячи, а продукту нужны те, по которым считается портфель и графики.
+    only_quotes limits the set by quote currency: an exchange has over a thousand pairs,
+    and the product needs the ones used for the portfolio and charts.
     """
     markets = await adapter.fetch_markets()
     saved = 0
@@ -97,11 +97,11 @@ async def update_tickers(
     *,
     symbols: list[str] | None = None,
 ) -> int:
-    """Записать текущее состояние рынков в срез market_tickers.
+    """Write the current market state into the market_tickers snapshot.
 
-    Пары и существующие срезы читаются двумя запросами, а не по одному
-    на символ: у биржи их под тысячу, и обход по одному превращал бы
-    обычное обновление котировок в сотни обращений к базе.
+    Pairs and existing snapshots are read with two queries, not one per symbol: an
+    exchange has about a thousand of them, and going one by one would turn a routine
+    quote refresh into hundreds of database round trips.
     """
     tickers = await adapter.fetch_tickers(symbols)
     if not tickers:
@@ -147,10 +147,10 @@ async def update_tickers(
 
 
 async def build_usd_price_map(session: AsyncSession) -> dict[str, Decimal]:
-    """Цена каждого актива в долларах по парам к стейблкоинам.
+    """Price of each asset in dollars, from pairs against stablecoins.
 
-    Если по активу нет пары к стейблу, его в карте не будет — и оценка
-    честно останется пустой вместо выдуманного числа.
+    If an asset has no pair against a stablecoin it won't be in the map - and its
+    valuation honestly stays empty instead of a made-up number.
     """
     prices: dict[str, Decimal] = {symbol: Decimal(1) for symbol in STABLECOINS}
 
@@ -164,8 +164,8 @@ async def build_usd_price_map(session: AsyncSession) -> dict[str, Decimal]:
         .join(base, base.c.id == Market.base_asset_id)
         .join(quote, quote.c.id == Market.quote_asset_id)
         .where(MarketTicker.last.is_not(None))
-        # Порядок фиксирован, чтобы оценка не прыгала между биржами от
-        # запуска к запуску.
+        # The order is fixed so the valuation doesn't jump between exchanges
+        # from run to run.
         .order_by(Market.exchange_id, base.c.symbol)
     )
 
@@ -193,10 +193,10 @@ async def get_ticker(session: AsyncSession, market_id: int) -> MarketTicker | No
 
 
 async def compare_across_exchanges(session: AsyncSession, symbol: str) -> list[dict]:
-    """Сопоставить одну пару на разных биржах: цена и спред.
+    """Compare one pair across exchanges: price and spread.
 
-    Сравнение из ТЗ строится именно так: одна пара на двух биржах — две
-    записи в markets, и разница считается между ними.
+    That's how the comparison from the spec works: one pair on two exchanges is two rows
+    in markets, and the difference is computed between them.
     """
     result = await session.execute(
         select(Exchange.code, MarketTicker)

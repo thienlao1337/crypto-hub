@@ -1,8 +1,8 @@
-"""Уборка старых данных.
+"""Cleanup of old data.
 
-Проверяется не только «удалилось», но и «нужное осталось»: чистка,
-которая уносит свежие свечи, ломает и графики, и индикаторы, а заметно
-это станет через сутки после установки.
+We check not only that things were deleted but that what's needed stayed: a cleanup that
+takes away fresh candles breaks both charts and indicators, and it only becomes
+noticeable a day after installation.
 """
 
 from contextlib import asynccontextmanager
@@ -23,7 +23,7 @@ NOW = datetime(2026, 9, 6, tzinfo=timezone.utc)
 
 @pytest_asyncio.fixture
 async def setup(session, monkeypatch):
-    """Две пары на двух таймфреймах и немного старых записей."""
+    """Two pairs on two timeframes and a few old rows."""
 
     @asynccontextmanager
     async def scope():
@@ -79,11 +79,11 @@ async def count_candles(session, market: Market, timeframe: Timeframe) -> int:
     )
 
 
-# --- Свечи ---
+# --- Candles ---
 
 
 async def test_candles_are_trimmed_per_series(session, setup, monkeypatch):
-    """Ограничение считается на каждую пару и таймфрейм отдельно."""
+    """The limit is counted per pair and timeframe separately."""
     monkeypatch.setattr(get_settings(), "candles_keep_per_series", 10, raising=False)
 
     add_candles(session, setup["btc"], setup["minute"], 25)
@@ -95,12 +95,12 @@ async def test_candles_are_trimmed_per_series(session, setup, monkeypatch):
 
     assert await count_candles(session, setup["btc"], setup["minute"]) == 10
     assert await count_candles(session, setup["btc"], setup["daily"]) == 10
-    # Короткий ряд трогать нечего — иначе график этой пары опустел бы.
+    # A short series has nothing to trim - otherwise this pair's chart would go empty.
     assert await count_candles(session, setup["eth"], setup["minute"]) == 5
 
 
 async def test_newest_candles_survive(session, setup, monkeypatch):
-    """Уносить надо старое: на свежем держатся и график, и индикаторы."""
+    """Old data is what goes: both the chart and the indicators rely on fresh data."""
     monkeypatch.setattr(get_settings(), "candles_keep_per_series", 3, raising=False)
 
     add_candles(session, setup["btc"], setup["minute"], 10)
@@ -119,7 +119,7 @@ async def test_newest_candles_survive(session, setup, monkeypatch):
     assert [value for (value,) in rows] == [Decimal(107), Decimal(108), Decimal(109)]
 
 
-# --- Записи по возрасту ---
+# --- Rows by age ---
 
 
 async def test_old_login_events_are_removed(session, setup, monkeypatch):
@@ -143,7 +143,7 @@ async def test_old_login_events_are_removed(session, setup, monkeypatch):
 
 
 async def test_zero_days_means_keep_forever(session, setup, monkeypatch):
-    """Клиент может захотеть хранить журнал входов дольше умолчания."""
+    """The client may want to keep the login log longer than the default."""
     monkeypatch.setattr(get_settings(), "login_events_keep_days", 0, raising=False)
 
     session.add(
@@ -178,7 +178,7 @@ async def test_old_market_stats_are_removed(session, setup, monkeypatch):
 
 
 async def test_cleanup_survives_a_broken_run(session, setup, monkeypatch):
-    """Сбой уборки не должен ронять планировщик целиком."""
+    """A cleanup failure must not take down the whole scheduler."""
 
     @asynccontextmanager
     async def broken():

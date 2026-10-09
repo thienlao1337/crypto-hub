@@ -1,12 +1,12 @@
-"""P2P: подключение, синхронизация объявлений и применение правила.
+"""P2P: connecting, syncing ads and applying the rule.
 
-Роль сервиса — связать площадку, правило и журнал. Сам расчёт цены живёт
-в p2p_pricing и ничего не знает ни про базу, ни про сеть: там его и
-проверяют.
+The service's job is to tie together the marketplace, the rule and the log. The price
+calculation itself lives in p2p_pricing and knows nothing about the database or the
+network: that's where it is tested.
 
-Всё, что бот решает, попадает в журнал — и когда цену подвинули, и когда
-решили не двигать. Объявление торгуется за реальные деньги, и вопрос
-«почему ночью мы стояли на процент дешевле» должен иметь ответ в базе.
+Everything the bot decides goes into the log - both when the price was moved and when it
+was left alone. The ad trades for real money, and the question "why were we one percent
+cheaper overnight" must have an answer in the database.
 """
 
 import logging
@@ -52,19 +52,19 @@ MODES = (RULE_OBSERVE, RULE_LIVE)
 
 
 class P2PServiceError(Exception):
-    """Правило нельзя сохранить или применить в таком виде."""
+    """The rule can't be saved or applied in this form."""
 
 
 @dataclass
 class AdView:
-    """Объявление вместе с правилом и площадкой — для списка на экране."""
+    """An ad together with its rule and marketplace - for the on-screen list."""
 
     ad: P2PAd
     rule: P2PPriceRule | None
     exchange: str
 
 
-# --- Подключение ---
+# --- Connecting ---
 
 
 async def build_adapter(session: AsyncSession, account: ExchangeAccount) -> P2PAdapter:
@@ -76,10 +76,11 @@ async def build_adapter(session: AsyncSession, account: ExchangeAccount) -> P2PA
 async def verify_access(
     session: AsyncSession, account: ExchangeAccount, adapter: P2PAdapter
 ) -> bool:
-    """Спросить у площадки, открыт ли ключу P2P.
+    """Ask the marketplace whether P2P is open to the key.
 
-    Как и с торговлей: право подтверждает площадка, а не галочка в форме.
-    Не подтвердила — значит нет, даже если пользователь уверен в обратном.
+    Same as with trading: the permission is confirmed by the marketplace, not by a
+    checkbox in the form. If it didn't confirm, the answer is no, even if the user is
+    sure otherwise.
     """
     access = await adapter.check_access()
     account.allow_p2p = access.is_allowed
@@ -90,7 +91,7 @@ async def verify_access(
 
 
 async def p2p_accounts(session: AsyncSession, user: User) -> list[ExchangeAccount]:
-    """Подключения, которым площадка подтвердила доступ к P2P."""
+    """Connections the marketplace confirmed P2P access for."""
     result = await session.execute(
         select(ExchangeAccount).where(
             ExchangeAccount.user_id == user.id,
@@ -102,17 +103,17 @@ async def p2p_accounts(session: AsyncSession, user: User) -> list[ExchangeAccoun
     return list(result.scalars())
 
 
-# --- Объявления ---
+# --- Ads ---
 
 
 async def sync_ads(
     session: AsyncSession, account: ExchangeAccount, adapter: P2PAdapter
 ) -> int:
-    """Обновить зеркало наших объявлений.
+    """Refresh the mirror of our ads.
 
-    Объявление, пропавшее с площадки, помечается закрытым, а не
-    удаляется: к нему привязаны правило и журнал, и терять историю
-    из-за снятого с публикации объявления незачем.
+    An ad that disappeared from the marketplace is marked closed, not deleted: the rule
+    and the log are attached to it, and there's no reason to lose history because an ad
+    was unpublished.
     """
     ads = await adapter.fetch_my_ads()
     seen: set[str] = set()
@@ -171,7 +172,7 @@ async def get_ad(session: AsyncSession, user: User, ad_id: int) -> P2PAd:
     return ad
 
 
-# --- Правило ---
+# --- Rule ---
 
 
 def validate_rule(
@@ -182,11 +183,11 @@ def validate_rule(
     ceiling_pct: Decimal,
     min_change: Decimal,
 ) -> None:
-    """Проверить правило до сохранения.
+    """Validate the rule before saving.
 
-    Вырожденный коридор — не придирка: при равных границах у бота нет
-    места для манёвра, а при перевёрнутых он окажется зажат в точку,
-    и понять это по поведению будет невозможно.
+    A degenerate corridor isn't nitpicking: with equal bounds the bot has no room to
+    maneuver, and with inverted ones it gets pinned to a single point - and that would
+    be impossible to figure out from its behaviour.
     """
     if target_position < 1:
         raise P2PServiceError("Место в списке — целое число от 1.")
@@ -212,17 +213,15 @@ async def save_rule(
     min_competitor_amount: Decimal | None = None,
     min_competitor_rate: Decimal | None = None,
 ) -> P2PPriceRule:
-    """Создать или обновить правило. Всегда останавливая его.
+    """Create or update a rule. Always stopping it.
 
-    Новое правило заводится ещё и в режиме наблюдения: правило, которое
-    начинает двигать цену сразу после сохранения, — это настройка
-    вслепую, человек не видел ни одного решения бота и уже доверил ему
-    объявление.
+    A new rule is also created in observe mode: a rule that starts moving the price
+    right after saving is configuration in the dark - the person hasn't seen a single
+    decision by the bot and has already handed it the ad.
 
-    Правка существующего тоже останавливает. Сдвинуть коридор у
-    работающего в боевом режиме правила — значит немедленно переставить
-    цену по границам, которых никто не проверял. Пусть человек посмотрит
-    и запустит сам.
+    Editing an existing rule stops it too. Shifting the corridor of a rule running live
+    means immediately repricing to bounds nobody has checked. Let the person take a look
+    and start it themselves.
     """
     validate_rule(
         target_position=target_position,
@@ -258,10 +257,10 @@ async def save_rule(
 
 
 async def set_mode(session: AsyncSession, ad: P2PAd, rule: P2PPriceRule, mode: str) -> None:
-    """Сменить режим правила.
+    """Change the rule mode.
 
-    Как и у автотрейдинга, смена режима всегда останавливает: запуск —
-    отдельное осознанное действие, а не побочный эффект настройки.
+    As with auto-trading, changing the mode always stops the rule: starting it is a
+    separate deliberate action, not a side effect of configuration.
     """
     if mode not in MODES:
         raise P2PServiceError("Неизвестный режим правила.")
@@ -285,7 +284,7 @@ async def set_active(session: AsyncSession, ad: P2PAd, rule: P2PPriceRule, activ
     await session.flush()
 
 
-# --- Применение ---
+# --- Applying ---
 
 
 async def apply_rule(
@@ -294,7 +293,7 @@ async def apply_rule(
     rule: P2PPriceRule,
     adapter: P2PAdapter,
 ) -> P2PPriceEvent | None:
-    """Посчитать цену по доске и, если нужно, применить её."""
+    """Compute the price from the board and apply it if needed."""
     if not settings.p2p_enabled:
         return await journal(
             session, ad, EVENT_SKIPPED,
@@ -373,16 +372,16 @@ async def apply_rule(
     )
 
 
-# --- Заказы ---
+# --- Orders ---
 
 
 async def sync_orders(
     session: AsyncSession, account: ExchangeAccount, adapter: P2PAdapter
 ) -> int:
-    """Обновить зеркало заказов по нашим объявлениям.
+    """Refresh the mirror of orders on our ads.
 
-    Только чтение: панель показывает, что происходит, а решение об
-    отпуске средств принимает человек.
+    Read-only: the panel shows what's going on, and the decision to release funds is
+    made by a person.
     """
     orders = await adapter.fetch_orders()
     ads = {
@@ -439,17 +438,15 @@ async def release_order(
     *,
     verifier=None,
 ) -> P2POrder:
-    """Отпустить криптовалюту по заказу.
+    """Release crypto for an order.
 
-    Отпуск возможен только после подтверждения прихода денег от источника
-    — банка или платёжного шлюза. Отметка «оплачено» на площадке этим
-    подтверждением не является: её ставит покупатель, и площадка её не
-    проверяет.
+    Release is only possible after the money's arrival is confirmed by its source - a
+    bank or payment gateway. The "paid" mark on the marketplace is not such a
+    confirmation: the buyer sets it, and the marketplace doesn't verify it.
 
-    Пока провайдер проверки не настроен, автоматический отпуск
-    невозможен по построению, и это не временное ограничение: отпускать
-    по неподтверждённому заявлению значит отдавать деньги любому, кто
-    нажал кнопку.
+    Until a verification provider is configured, automatic release is impossible by
+    design, and that's not a temporary limitation: releasing on an unconfirmed claim
+    means handing money to anyone who pressed a button.
     """
     if order.released_at is not None:
         raise P2PServiceError("Средства по этому заказу уже отпущены.")
@@ -486,7 +483,7 @@ async def _get_order(
     return result.scalar_one_or_none()
 
 
-# --- Журнал ---
+# --- Log ---
 
 
 async def journal(
@@ -501,14 +498,13 @@ async def journal(
     spot_price: Decimal | None = None,
     collapse_repeats: bool = False,
 ) -> P2PPriceEvent | None:
-    """Записать решение.
+    """Record a decision.
 
-    collapse_repeats нужен для решений «ничего не делаем». Правило
-    пересчитывается раз в минуту, и в спокойном рынке это полторы тысячи
-    одинаковых строк в сутки на объявление: журнал, в котором нельзя
-    найти единственную важную запись, — это не журнал. Повтор подряд
-    того же решения с тем же объяснением не пишется, а первое появление
-    и любое изменение — пишутся.
+    collapse_repeats is for "do nothing" decisions. The rule is recalculated once a
+    minute, and in a calm market that's fifteen hundred identical rows a day per ad: a
+    log where you can't find the one important entry isn't a log. A consecutive repeat
+    of the same decision with the same explanation isn't written, while the first
+    occurrence and any change are.
     """
     if collapse_repeats:
         last = await _last_event(session, ad)
@@ -551,7 +547,7 @@ async def recent_events(
     return list(result.scalars())
 
 
-# --- Вспомогательное ---
+# --- Helpers ---
 
 
 async def _get_ad_by_external(

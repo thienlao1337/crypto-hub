@@ -1,9 +1,8 @@
-"""Проверки обработчиков бота без Telegram.
+"""Bot handler tests without Telegram.
 
-Обработчик получает сообщение и сессию, а отвечает вызовом answer().
-Этого достаточно, чтобы проверить логику: живой бот добавляет только
-транспорт. Полная проверка против Telegram API требует токена и делается
-отдельно.
+A handler receives a message and a session, and replies by calling answer(). That's
+enough to test the logic: a live bot only adds transport. A full check against the
+Telegram API needs a token and is done separately.
 """
 
 from dataclasses import dataclass, field
@@ -32,7 +31,7 @@ class FakeUser:
 
 @dataclass
 class FakeMessage:
-    """Минимальная замена aiogram.types.Message."""
+    """Minimal stand-in for aiogram.types.Message."""
 
     text: str = ""
     from_user: FakeUser = field(default_factory=FakeUser)
@@ -82,7 +81,7 @@ async def setup(session):
     return {"user": user, "market": bybit_market}
 
 
-# --- Привязка ---
+# --- Linking ---
 
 
 async def test_unlinked_chat_gets_instructions(session):
@@ -94,7 +93,7 @@ async def test_unlinked_chat_gets_instructions(session):
 
 
 async def test_link_by_code(session, setup):
-    """Код отправляют одним сообщением — обработчик ловит числа."""
+    """The code is sent as a single message - the handler catches numbers."""
     stranger = await user_service.create_user(
         session, email="new@example.com", password="new-password-11"
     )
@@ -123,7 +122,7 @@ async def test_unlink(session, setup):
     assert setup["user"].telegram_id is None
 
 
-# --- Данные ---
+# --- Data ---
 
 
 async def test_price_shows_both_exchanges(session, setup):
@@ -133,7 +132,7 @@ async def test_price_shows_both_exchanges(session, setup):
     assert "BTC/USDT" in message.reply
     assert "bybit" in message.reply
     assert "binance" in message.reply
-    # Разница между биржами — то, ради чего их две.
+    # The difference between exchanges is the whole point of having two.
     assert "Разница между биржами" in message.reply
 
 
@@ -169,7 +168,7 @@ async def test_commands_require_linked_account(session):
         assert "не привязан" in message.reply
 
 
-# --- Алерты через бота ---
+# --- Alerts via the bot ---
 
 
 async def test_create_alert_from_chat(session, setup):
@@ -207,10 +206,10 @@ async def test_create_alert_for_unknown_pair(session, setup):
 
 
 async def test_cyrillic_ticker_is_rejected_with_format_hint(session, setup):
-    """Тикеры пишутся латиницей.
+    """Tickers are written in Latin letters.
 
-    Набранное в русской раскладке до поиска пары не доходит — отвечаем
-    подсказкой формата, а не «пара не найдена».
+    Input typed in the Russian layout never reaches the pair lookup - we reply with a
+    format hint, not "pair not found".
     """
     message = FakeMessage()
     await data.create_alert(

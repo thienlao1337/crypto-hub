@@ -1,4 +1,4 @@
-"""Старт, справка и привязка аккаунта."""
+"""Start, help and account linking."""
 
 from aiogram import Router
 from aiogram.filters import Command, CommandStart
@@ -64,10 +64,10 @@ async def unlink(message: Message, session: AsyncSession, user: User | None) -> 
 
 @router.message(lambda message: (message.text or "").strip().isdigit())
 async def link_by_code(message: Message, session: AsyncSession, user: User | None) -> None:
-    """Числовое сообщение трактуем как код привязки.
+    """A numeric message is treated as a linking code.
 
-    Отдельной командой это делать неудобно: код приходится копировать, и
-    лишнее слово перед ним — частая причина «не работает».
+    A separate command is inconvenient here: the code has to be copied, and an extra
+    word in front of it is a common reason for "it doesn't work".
     """
     if user is not None:
         await message.answer("Чат уже привязан. Отвязать — /unlink")

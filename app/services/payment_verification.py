@@ -1,18 +1,17 @@
-"""Подтверждение поступления денег.
+"""Confirmation that money has arrived.
 
-Отметку «оплачено» на P2P ставит покупатель, и площадка её не проверяет —
-она лишь передаёт слова одной стороны другой. Единственный, кто может
-подтвердить приход, — источник денег: банк или платёжный шлюз.
+The "paid" mark on P2P is set by the buyer, and the marketplace doesn't verify it - it
+merely passes one side's word to the other. The only party that can confirm an arrival
+is the source of the money: a bank or payment gateway.
 
-Поэтому здесь только стык, без реализации. Провайдер зависит от банка и
-страны: под Тинькофф, монобанк и YooKassa это три разные интеграции, и
-выбрать за клиента её нельзя.
+So this is only an interface, with no implementation. The provider depends on the bank
+and the country: Tinkoff, monobank and YooKassa are three different integrations, and it
+can't be chosen on the client's behalf.
 
-Пока провайдер не настроен, автоматический отпуск средств невозможен —
-не потому, что «не успели», а потому, что отпускать по неподтверждённому
-заявлению значит отдавать деньги любому, кто нажал кнопку. Разница между
-«проверка не настроена» и «проверка сказала нет» здесь принципиальна, и
-типы её сохраняют.
+Until a provider is configured, automatic release of funds is impossible - not because
+"we haven't got to it yet", but because releasing on an unconfirmed claim means handing
+money to anyone who pressed a button. The difference between "verification isn't
+configured" and "verification said no" is fundamental here, and the types preserve it.
 """
 
 import logging
@@ -26,13 +25,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class PaymentCheck:
-    """Что источник денег сказал о платеже."""
+    """What the source of money said about the payment."""
 
-    # Деньги пришли и сходятся с заказом.
+    # The money arrived and matches the order.
     is_confirmed: bool
-    # Проверять было нечем: провайдер не настроен или недоступен. Это не
-    # «нет», и путать эти два состояния нельзя — на «нет» надо разбираться
-    # с покупателем, а на «нечем» с настройками.
+    # Nothing to verify with: the provider isn't configured or is unavailable.
+    # That's not a "no", and the two states must not be confused - a "no" means
+    # dealing with the buyer, "nothing to verify with" means dealing with the
+    # settings.
     is_unknown: bool = False
     reason: str = ""
     matched_amount: Decimal | None = None
@@ -40,7 +40,7 @@ class PaymentCheck:
 
 
 class PaymentVerifier(Protocol):
-    """Источник, способный подтвердить приход денег."""
+    """A source capable of confirming that money has arrived."""
 
     async def verify(
         self,
@@ -50,15 +50,15 @@ class PaymentVerifier(Protocol):
         reference: str,
         since: datetime | None = None,
     ) -> PaymentCheck:
-        """Найти поступление на указанную сумму."""
+        """Find an incoming payment for the given amount."""
 
 
 class NotConfiguredVerifier:
-    """Заглушка на время, пока банк или шлюз не названы.
+    """Placeholder until a bank or gateway is named.
 
-    Всегда отвечает «проверить нечем», и именно поэтому автоотпуск с ней
-    не срабатывает. Молча возвращать «подтверждено» такая заглушка не
-    имеет права ни при каких обстоятельствах.
+    Always answers "nothing to verify with", and that's exactly why auto-release doesn't
+    fire with it. Such a placeholder has no right to silently return "confirmed" under
+    any circumstances.
     """
 
     async def verify(
@@ -80,10 +80,10 @@ class NotConfiguredVerifier:
 
 
 def get_verifier() -> PaymentVerifier:
-    """Настроенный провайдер проверки.
+    """The configured verification provider.
 
-    Отдельной функцией, чтобы подключение провайдера было заменой одной
-    строки, а не правкой по всему коду отпуска.
+    A separate function so plugging in a provider is a one-line change, not edits all
+    over the release code.
     """
     return NotConfiguredVerifier()
 

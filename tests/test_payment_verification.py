@@ -1,8 +1,7 @@
-"""Подтверждение поступления денег.
+"""Confirmation that money has arrived.
 
-Проверяется главное свойство заглушки: она не имеет права ответить
-«подтверждено» ни при каких обстоятельствах. Ошибка здесь означает выдачу
-криптовалюты по неоплаченному заказу.
+We test the placeholder's key property: it has no right to answer "confirmed" under any
+circumstances. A bug here means releasing crypto on an unpaid order.
 """
 
 from decimal import Decimal
@@ -19,9 +18,9 @@ async def test_stub_never_confirms():
 
 
 async def test_stub_says_it_could_not_check_rather_than_no():
-    """«Проверять нечем» и «денег нет» — разные новости.
+    """"Nothing to verify with" and "no money" are different news.
 
-    На первое разбираются с настройками, на второе — с покупателем.
+    The first means dealing with settings, the second with the buyer.
     """
     check = await payment_verification.NotConfiguredVerifier().verify(
         amount=Decimal(1), currency="RUB", reference="x"
@@ -32,5 +31,5 @@ async def test_stub_says_it_could_not_check_rather_than_no():
 
 
 def test_verifier_is_not_configured_by_default():
-    """Пока банк или шлюз не названы, автоотпуск невозможен по построению."""
+    """Until a bank or gateway is named, auto-release is impossible by design."""
     assert payment_verification.is_configured() is False

@@ -1,7 +1,7 @@
 """seed reference data
 
-Справочники, без которых приложение не работает: биржи, таймфреймы,
-типы алертов. Заводятся миграцией, дальше правятся из админки.
+Reference data the app can't work without: exchanges, timeframes, alert types. Created
+by a migration, edited from the admin panel afterwards.
 
 Revision ID: 0002
 Revises: 0001
@@ -52,7 +52,7 @@ EXCHANGE_ROWS = [
     {"code": "binance", "name": "Binance", "is_active": True, "supports_testnet": True, "sort_order": 20},
 ]
 
-# Набор из ТЗ: 1м / 5м / 15м / 1ч / 4ч / 1д.
+# The set from the spec: 1m / 5m / 15m / 1h / 4h / 1d.
 TIMEFRAME_ROWS = [
     {"code": "1m", "label": "1 минута", "seconds": 60, "is_active": True, "sort_order": 10},
     {"code": "5m", "label": "5 минут", "seconds": 300, "is_active": True, "sort_order": 20},

@@ -1,8 +1,8 @@
-"""Подключённые ключи бирж.
+"""Connected exchange keys.
 
-Ключ проверяется у биржи до сохранения и хранится только зашифрованным.
-Право на торговлю выставляется исключительно по подтверждению биржи —
-галочка в форме сама по себе его не даёт.
+A key is verified with the exchange before saving and stored only encrypted. Trading
+permission is set solely on the exchange's confirmation - a checkbox in the form doesn't
+grant it by itself.
 """
 
 import logging
@@ -28,7 +28,7 @@ AdapterFactory = Callable[[str, str, str, bool], ExchangeAdapter]
 
 
 class ExchangeKeyError(Exception):
-    """Базовая ошибка работы с ключами бирж."""
+    """Base error for exchange key operations."""
 
 
 class ExchangeNotSupported(ExchangeKeyError):
@@ -36,7 +36,7 @@ class ExchangeNotSupported(ExchangeKeyError):
 
 
 class KeyRejected(ExchangeKeyError):
-    """Биржа не приняла ключ."""
+    """The exchange rejected the key."""
 
 
 class AccountNotFound(ExchangeKeyError):
@@ -57,7 +57,7 @@ def default_adapter_factory(
     )
 
 
-# --- Чтение ---
+# --- Reading ---
 
 
 async def list_accounts(session: AsyncSession, user: User) -> list[ExchangeAccount]:
@@ -70,10 +70,10 @@ async def list_accounts(session: AsyncSession, user: User) -> list[ExchangeAccou
 
 
 async def get_account(session: AsyncSession, user: User, account_id: int) -> ExchangeAccount:
-    """Достать ключ с проверкой владельца.
+    """Fetch a key, checking its owner.
 
-    Фильтр по user_id стоит здесь, а не в роутере: иначе один забытый
-    роутер открывает чужие ключи.
+    The user_id filter lives here, not in the router: otherwise a single forgotten
+    router would expose other people's keys.
     """
     result = await session.execute(
         select(ExchangeAccount).where(
@@ -102,7 +102,7 @@ async def list_exchanges(session: AsyncSession) -> list[Exchange]:
     return list(result.scalars())
 
 
-# --- Подключение ---
+# --- Connecting ---
 
 
 async def add_account(
@@ -117,10 +117,10 @@ async def add_account(
     want_trading: bool = False,
     adapter_factory: AdapterFactory = default_adapter_factory,
 ) -> ExchangeAccount:
-    """Проверить ключ у биржи и сохранить его зашифрованным.
+    """Verify the key with the exchange and store it encrypted.
 
-    Непринятый ключ в базу не попадает: хранить заведомо нерабочие
-    учётные данные незачем, а пользователю нужна ошибка сразу.
+    A rejected key never reaches the database: there's no point storing credentials
+    known to be broken, and the user needs the error right away.
     """
     exchange = await get_exchange_by_code(session, exchange_code)
 
@@ -129,9 +129,10 @@ async def add_account(
     if not api_key or not api_secret:
         raise KeyRejected("Заполните и ключ, и секрет.")
 
-    # Признак хранится в справочнике бирж, чтобы клиент мог добавить туда
-    # биржу без песочницы, не трогая код. Проверяем до запроса к бирже:
-    # обращаться в несуществующую тестовую сеть незачем.
+    # The flag is stored in the exchange reference table so the client can add
+    # an exchange without a sandbox there without touching code. We check
+    # before calling the exchange: there's no point contacting a test network
+    # that doesn't exist.
     if testnet and not exchange.supports_testnet:
         raise KeyRejected(f"У биржи {exchange.name} нет тестовой сети.")
 
@@ -161,7 +162,7 @@ async def add_account(
         user_id=user.id,
         entity="exchange_account",
         entity_id=account.id,
-        # В журнал уходит только маска — не сам ключ.
+        # Only the mask goes to the log - never the key itself.
         payload={
             "exchange": exchange_code,
             "masked": account.api_key_masked,
@@ -186,7 +187,7 @@ async def recheck_account(
     *,
     adapter_factory: AdapterFactory = default_adapter_factory,
 ) -> KeyCheck:
-    """Перепроверить ключ: права могли отозвать на стороне биржи."""
+    """Re-check the key: permissions may have been revoked on the exchange side."""
     exchange = await session.get(Exchange, account.exchange_id)
     api_key, api_secret = decrypt_credentials(account)
 
@@ -202,8 +203,8 @@ async def recheck_account(
     else:
         account.status = KEY_STATUS_INVALID
         account.last_error = check.error
-        # Ключ не подтверждён — торговать по нему нельзя, что бы ни было
-        # записано раньше.
+        # The key isn't confirmed - it must not be used for trading, whatever
+        # was recorded before.
         account.allow_trading = False
 
     await session.flush()
@@ -223,7 +224,7 @@ async def delete_account(session: AsyncSession, user: User, account: ExchangeAcc
     await session.flush()
 
 
-# --- Работа с сохранённым ключом ---
+# --- Working with a stored key ---
 
 
 def decrypt_credentials(account: ExchangeAccount) -> tuple[str, str]:
@@ -239,17 +240,17 @@ async def build_adapter(
     *,
     adapter_factory: AdapterFactory = default_adapter_factory,
 ) -> ExchangeAdapter:
-    """Собрать подключение к бирже по сохранённому ключу."""
+    """Build an exchange connection from a stored key."""
     exchange = await session.get(Exchange, account.exchange_id)
     api_key, api_secret = decrypt_credentials(account)
     return adapter_factory(exchange.code, api_key, api_secret, account.is_testnet)
 
 
 def mask_key(api_key: str) -> str:
-    """Хвост ключа для опознания в интерфейсе.
+    """Tail of the key for recognizing it in the UI.
 
-    Показываем только последние символы: по началу ключа биржи иногда
-    можно определить аккаунт, по четырём последним — нет.
+    We show only the last characters: the beginning of an exchange key can sometimes
+    identify the account, the last four can't.
     """
     if len(api_key) <= 4:
         return "*" * len(api_key)
@@ -267,7 +268,7 @@ async def _check_with_exchange(
     try:
         return await adapter.check_key()
     except Exception as exc:
-        logger.warning("Проверка ключа %s не удалась: %s", exchange_code, exc)
+        logger.warning("Key check for %s failed: %s", exchange_code, exc)
         return KeyCheck(is_valid=False, error=str(exc))
     finally:
         await adapter.close()
@@ -276,7 +277,7 @@ async def _check_with_exchange(
 async def mark_sync_error(
     session: AsyncSession, account: ExchangeAccount, message: str
 ) -> None:
-    """Отметить сбой синхронизации, не трогая признак валидности ключа."""
+    """Record a sync failure without touching the key's validity flag."""
     account.status = KEY_STATUS_ERROR
     account.last_error = message[:1000]
     await session.flush()

@@ -1,8 +1,8 @@
 """strategy last signal watermark
 
-Отметка «сигналы до этого номера уже рассмотрены». Без неё каждый проход
-фонового процесса разбирал те же сигналы заново и писал в журнал те же
-отказы: за полчаса набегало три десятка одинаковых строк.
+Marker for "signals up to this id have already been reviewed". Without it every
+background pass re-processed the same signals and logged the same rejections: thirty
+identical lines piled up in half an hour.
 
 Revision ID: 0010
 Revises: 0009
@@ -22,9 +22,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Без внешнего ключа намеренно: это водяной знак, а не ссылка на
-    # запись. Удаление старого сигнала не должно обнулять отметку и
-    # заставлять стратегию всё переосмысливать.
+    # No foreign key on purpose: this is a watermark, not a reference to a row.
+    # Deleting an old signal must not reset the marker and make the strategy
+    # reconsider everything.
     op.add_column('strategies', sa.Column('last_signal_id', sa.BigInteger(), nullable=True))
 
 

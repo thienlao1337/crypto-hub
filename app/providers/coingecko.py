@@ -1,7 +1,7 @@
-"""Общерыночные показатели из CoinGecko.
+"""Market-wide metrics from CoinGecko.
 
-Без ключа работает публичный тир с жёстким лимитом, поэтому запрос
-делается редко и его результат складывается в global_stats.
+Without a key the public tier has a strict limit, so the request is made rarely and its
+result is stored in global_stats.
 """
 
 import logging
@@ -29,19 +29,19 @@ class GlobalMarket:
 
 def _headers() -> dict[str, str]:
     key = get_settings().coingecko_api_key
-    # Demo-ключ передаётся своим заголовком; без ключа шлём обычный запрос.
+    # The demo key goes in its own header; without a key we send a plain request.
     return {"x-cg-demo-api-key": key} if key else {}
 
 
 async def fetch_global() -> GlobalMarket | None:
-    """Капитализация рынка и доминация. None — источник недоступен."""
+    """Market cap and dominance. None - the source is unavailable."""
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             response = await client.get(f"{BASE_URL}/global", headers=_headers())
             response.raise_for_status()
             payload = response.json()
     except (httpx.HTTPError, ValueError) as exc:
-        logger.warning("CoinGecko недоступен: %s", exc)
+        logger.warning("CoinGecko unavailable: %s", exc)
         return None
 
     data = payload.get("data") or {}

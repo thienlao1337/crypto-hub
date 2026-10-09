@@ -1,6 +1,6 @@
-"""Поддельная биржа для тестов сервисного слоя.
+"""A fake exchange for service-layer tests.
 
-Позволяет проверять логику, не выходя в сеть и не имея ключей.
+Lets us test logic without going to the network or having keys.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -18,7 +18,7 @@ from app.exchanges.base import (
 
 
 class FakeAdapter:
-    """Адаптер с заранее заданными ответами."""
+    """An adapter with predefined responses."""
 
     def __init__(
         self,
@@ -78,7 +78,7 @@ class FakeAdapter:
 
 
 def factory_for(adapter: FakeAdapter):
-    """Фабрика, всегда отдающая один и тот же поддельный адаптер."""
+    """A factory that always returns the same fake adapter."""
 
     def _factory(exchange_code, api_key, api_secret, testnet):
         adapter.last_args = (exchange_code, api_key, api_secret, testnet)
@@ -162,7 +162,7 @@ def bar(
 
 
 def hourly_bars(count: int, *, start_price: int = 100, step: int = 1) -> list[OhlcvBar]:
-    """Ряд часовых свечей с равномерным ростом — удобно для индикаторов."""
+    """A series of hourly candles with steady growth - convenient for indicators."""
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
     return [
         bar(base + timedelta(hours=index), str(start_price + index * step))

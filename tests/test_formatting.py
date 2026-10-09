@@ -5,7 +5,7 @@ import pytest
 
 from app.services import localtime
 from app.web.templates_env import (
-    GROUP_SEPARATOR as NB,  # узкий неразрывный пробел между разрядами
+    GROUP_SEPARATOR as NB,  # narrow no-break space between digit groups
 )
 from app.web.templates_env import format_amount, format_pct, format_plain, format_usd
 
@@ -13,8 +13,9 @@ from app.web.templates_env import format_amount, format_pct, format_plain, forma
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        # Ради этого случая фильтр и появился: Decimal.normalize() отдавал
-        # 1.5E+8, и в таблице портфеля это выглядело как ошибка.
+        # This is the case the filter was made for: Decimal.normalize()
+        # returned 1.5E+8, and in the portfolio table that looked like an
+        # error.
         (Decimal("150000000"), f"150{NB}000{NB}000"),
         (Decimal("180.000000000000000000"), "180"),
         (Decimal("16800.00"), f"16{NB}800"),
@@ -31,7 +32,7 @@ def test_format_amount(value, expected):
 
 
 def test_amount_trims_excess_precision():
-    """Восемнадцать знаков из базы в интерфейсе не нужны."""
+    """Eighteen decimal places from the database aren't needed in the UI."""
     assert format_amount(Decimal("0.123456789012345678")) == "0.12345679"
 
 
@@ -58,7 +59,7 @@ def test_format_usd(value, expected):
     ],
 )
 def test_format_usd_signed(value, expected):
-    """У PnL плюс так же содержателен, как минус."""
+    """For PnL a plus is as informative as a minus."""
     assert format_usd(value, signed=True) == expected
 
 
@@ -79,7 +80,7 @@ def test_pct_respects_decimals():
     assert format_pct(Decimal("39.34"), 1) == "39.3%"
 
 
-# --- Часовой пояс ---
+# --- Time zone ---
 
 
 class FakeUser:
@@ -88,7 +89,7 @@ class FakeUser:
 
 
 def test_moment_shifts_into_user_zone():
-    """Время хранится в UTC, показывается в поясе пользователя."""
+    """Time is stored in UTC and shown in the user's time zone."""
     utc = datetime(2026, 9, 6, 0, 27, tzinfo=timezone.utc)
 
     assert localtime.moment(utc, FakeUser("UTC")) == "06.09 00:27"
@@ -96,7 +97,7 @@ def test_moment_shifts_into_user_zone():
 
 
 def test_moment_treats_naive_time_as_utc():
-    """Молча сдвинуть наивное время на местное — худший из вариантов."""
+    """Silently shifting naive time to local time is the worst option."""
     naive = datetime(2026, 9, 6, 0, 27)
 
     assert localtime.moment(naive, FakeUser("Europe/Kyiv")) == "06.09 03:27"
@@ -115,7 +116,7 @@ def test_moment_without_user_is_utc():
     assert localtime.moment(None, FakeUser("UTC")) == "—"
 
 
-# --- Значения для полей ввода ---
+# --- Values for input fields ---
 
 
 @pytest.mark.parametrize(
@@ -129,10 +130,10 @@ def test_moment_without_user_is_utc():
     ],
 )
 def test_plain_is_safe_to_put_into_a_form(value, expected):
-    """Отображающие фильтры для value формы не годятся.
+    """Display filters don't fit a form's value.
 
-    «-1.00%» и «1 000» с неразрывным пробелом сервер не разберёт, и
-    правило перестанет сохраняться от одного нажатия «Сохранить».
+    The server won't parse "-1.00%" or "1 000" with a non-breaking space, and the rule
+    would stop saving after a single click on "Save".
     """
     assert format_plain(value) == expected
 

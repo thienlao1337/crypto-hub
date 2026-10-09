@@ -5,10 +5,10 @@ import pytest
 
 from app.services import security
 
-# Ключ шифрования подставляет автоиспользуемая фикстура из conftest.
+# The encryption key is injected by an autouse fixture from conftest.
 
 
-# --- Шифрование ---
+# --- Encryption ---
 
 
 def test_encrypt_decrypt_roundtrip():
@@ -20,9 +20,9 @@ def test_encrypt_decrypt_roundtrip():
 
 
 def test_encryption_is_not_deterministic():
-    """Два шифрования одного значения дают разные токены.
+    """Two encryptions of the same value produce different tokens.
 
-    Иначе по базе было бы видно, что у двух пользователей одинаковый ключ.
+    Otherwise the database would reveal that two users have the same key.
     """
     assert security.encrypt_secret("same") != security.encrypt_secret("same")
 
@@ -46,7 +46,7 @@ def test_missing_key_raises_clear_error(monkeypatch):
         security.encrypt_secret("anything")
 
 
-# --- Пароли ---
+# --- Passwords ---
 
 
 def test_password_roundtrip():
@@ -61,9 +61,9 @@ def test_password_salt_differs_per_call():
 
 
 def test_long_passphrases_are_not_truncated():
-    """Пароли длиннее 72 байт должны различаться.
+    """Passwords longer than 72 bytes must stay distinct.
 
-    Голый bcrypt обрезал бы их до общего префикса и признал одинаковыми.
+    Plain bcrypt would truncate them to a common prefix and treat them as equal.
     """
     base = "a" * 80
     hashed = security.hash_password(base + "TAIL-ONE")
@@ -106,7 +106,7 @@ def test_provisioning_uri_contains_issuer_and_account():
     assert secret in uri
 
 
-# --- Коды восстановления ---
+# --- Recovery codes ---
 
 
 def test_recovery_code_roundtrip():
@@ -118,7 +118,7 @@ def test_recovery_code_roundtrip():
 
 
 def test_recovery_code_ignores_formatting():
-    """Пользователь перепечатывает код руками — регистр и дефисы не важны."""
+    """The user retypes the code by hand - case and dashes don't matter."""
     code = security.generate_recovery_code()
     code_hash = security.hash_recovery_code(code)
 

@@ -1,8 +1,8 @@
-"""Сессия веб-панели: вход, CSRF, проверки доступа.
+"""Web panel session: login, CSRF, access checks.
 
-Сессия — подписанная cookie (Starlette SessionMiddleware). В ней лежит
-только идентификатор пользователя: всё остальное читается из базы, чтобы
-отключённый аккаунт терял доступ немедленно, а не после истечения cookie.
+The session is a signed cookie (Starlette SessionMiddleware). It holds only the user id:
+everything else is read from the database, so a disabled account loses access
+immediately, not when the cookie expires.
 """
 
 import hmac
@@ -20,25 +20,25 @@ SESSION_CSRF = "csrf_token"
 
 
 class LoginRequired(Exception):
-    """Нужен вход. Обработчик уводит на форму входа."""
+    """Login required. The handler redirects to the login form."""
 
 
 class OwnerRequired(Exception):
-    """Раздел доступен только владельцу панели."""
+    """This section is available only to the panel owner."""
 
 
 class CsrfInvalid(Exception):
-    """Форма отправлена без корректного токена."""
+    """The form was submitted without a valid token."""
 
 
 # --- CSRF ---
 
 
 def issue_csrf_token(request: Request) -> str:
-    """Взять токен из сессии или завести новый.
+    """Take the token from the session or create a new one.
 
-    Токен привязан к сессии, поэтому чужая страница не может подставить
-    свой: она не прочитает нашу cookie.
+    The token is bound to the session, so a third-party page can't substitute its own:
+    it can't read our cookie.
     """
     token = request.session.get(SESSION_CSRF)
     if not token:
@@ -52,21 +52,21 @@ def verify_csrf(request: Request, token: str | None) -> None:
     if not expected or not token:
         raise CsrfInvalid("Форма устарела. Обновите страницу и попробуйте снова.")
 
-    # Сравниваем байты, а не строки: compare_digest на строках с
-    # не-ASCII символами бросает TypeError, и присланная кириллица в поле
-    # токена роняла бы обработчик вместо аккуратного отказа.
+    # Compare bytes, not strings: compare_digest on strings with non-ASCII
+    # characters raises TypeError, and Cyrillic sent in the token field would
+    # crash the handler instead of a clean rejection.
     if not hmac.compare_digest(expected.encode("utf-8"), token.encode("utf-8")):
         raise CsrfInvalid("Форма устарела. Обновите страницу и попробуйте снова.")
 
 
-# --- Состояние сессии ---
+# --- Session state ---
 
 
 def start_session(request: Request, user: User) -> None:
-    """Открыть сессию после успешного прохождения всех факторов.
+    """Open a session after all factors have been passed.
 
-    Сессия очищается целиком: перевыпуск идентификатора не даёт
-    воспользоваться cookie, подсунутой до входа.
+    The session is cleared entirely: reissuing the identifier prevents using a cookie
+    planted before login.
     """
     request.session.clear()
     request.session[SESSION_USER_ID] = user.id
@@ -74,7 +74,7 @@ def start_session(request: Request, user: User) -> None:
 
 
 def set_pending_user(request: Request, user: User) -> None:
-    """Пароль принят, ждём второй фактор."""
+    """Password accepted, waiting for the second factor."""
     request.session.pop(SESSION_USER_ID, None)
     request.session[SESSION_PENDING_USER_ID] = user.id
     issue_csrf_token(request)
@@ -84,7 +84,7 @@ def clear_session(request: Request) -> None:
     request.session.clear()
 
 
-# --- Текущий пользователь ---
+# --- Current user ---
 
 
 async def get_current_user(
@@ -97,7 +97,7 @@ async def get_current_user(
 
     user = await user_service.get_by_id(session, user_id)
     if user is None or not user.is_active:
-        # Аккаунт удалён или отключён, пока cookie ещё жива.
+        # The account was deleted or disabled while the cookie is still alive.
         request.session.clear()
         return None
     return user
@@ -130,15 +130,15 @@ async def require_owner(user: User = Depends(require_user)) -> User:
     return user
 
 
-# --- Данные запроса для аудита ---
+# --- Request data for the audit log ---
 
 
 def client_ip(request: Request) -> str | None:
-    """Адрес клиента с учётом обратного прокси.
+    """Client address, taking the reverse proxy into account.
 
-    За Caddy или nginx настоящий адрес приходит в X-Forwarded-For.
-    Заголовок подделывается, поэтому он годится для журнала, но не для
-    ограничений — перебор паролей ограничивается по адресу почты.
+    Behind Caddy or nginx the real address arrives in X-Forwarded-For. The header can be
+    forged, so it's fine for the log but not for limits - password brute-forcing is
+    limited per email address.
     """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:

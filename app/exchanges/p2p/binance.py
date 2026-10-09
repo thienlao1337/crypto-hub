@@ -1,17 +1,14 @@
-"""P2P Binance.
+"""Binance P2P.
 
-Управление объявлениями — sapi/v1/c2c/agent/ads/*, подпись обычная для
-sapi: HMAC-SHA256 от строки запроса с timestamp, ключ в заголовке
-X-MBX-APIKEY. Доска чужих объявлений берётся публичным эндпоинтом, для
-него ключ не нужен вовсе.
+Ad management is sapi/v1/c2c/agent/ads/*, signed the usual sapi way: HMAC-SHA256 over
+the query string with timestamp, key in the X-MBX-APIKEY header. The board of other ads
+comes from a public endpoint that needs no key at all.
 
-Доступ к записи открыт только верифицированным мерчантам. Как и у Bybit,
-отказ из-за отсутствия статуса — отдельный тип ошибки: он чинится
-заявкой, а не повтором.
+Write access is only open to verified merchants. As with Bybit, a rejection due to
+missing status is a separate error type: it is fixed by applying, not by retrying.
 
-Проверить вживую без статуса мерчанта нечем, поэтому разбор ответов
-падает с именем недостающего поля, а не подставляет значение по
-умолчанию.
+There is no way to test live without merchant status, so response parsing fails with the
+name of the missing field instead of substituting a default.
 """
 
 import hashlib
@@ -38,24 +35,24 @@ from app.exchanges.p2p.base import (
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.binance.com"
-# Доска объявлений живёт на витрине сайта, а не в торговом API, и ключа
-# не требует: это то же, что видит любой посетитель раздела P2P.
+# The ad board lives on the website's storefront, not in the trading API, and
+# needs no key: it's the same thing any visitor of the P2P section sees.
 PUBLIC_URL = "https://p2p.binance.com"
 TIMEOUT = 15
 RECV_WINDOW = 5000
 
-# Коды отказа из-за отсутствия прав мерчанта.
+# Rejection codes caused by missing merchant permissions.
 ACCESS_CODES = {-2015, -1002}
 
 
 class BinanceP2PAdapter:
-    """Одно подключение к P2P Binance."""
+    """A single connection to Binance P2P."""
 
     code = "binance"
 
     def __init__(self, api_key: str, api_secret: str, *, testnet: bool = False) -> None:
-        # Тестовой сети у P2P нет ни у одной площадки: объявления и
-        # заказы существуют только в бою.
+        # No marketplace has a P2P testnet: ads and orders only exist in
+        # production.
         self._key = api_key
         self._secret = api_secret
         self._client = httpx.AsyncClient(base_url=BASE_URL, timeout=TIMEOUT)
@@ -71,10 +68,10 @@ class BinanceP2PAdapter:
     async def __aexit__(self, *exc_info) -> None:
         await self.close()
 
-    # --- Подпись ---
+    # --- Signing ---
 
     def sign(self, query: str) -> str:
-        """Подпись строки запроса. Считается ровно от того, что уйдёт."""
+        """Signature of the query string. Computed over exactly what will be sent."""
         return hmac.new(self._secret.encode(), query.encode(), hashlib.sha256).hexdigest()
 
     def _signed_query(self, params: dict) -> str:
@@ -113,7 +110,7 @@ class BinanceP2PAdapter:
 
         return data.get("data") or {}
 
-    # --- Доступ ---
+    # --- Access ---
 
     async def check_access(self) -> P2PAccess:
         try:
@@ -124,7 +121,7 @@ class BinanceP2PAdapter:
             return P2PAccess(is_allowed=False, error=str(exc))
         return P2PAccess(is_allowed=True)
 
-    # --- Объявления ---
+    # --- Ads ---
 
     async def fetch_my_ads(self) -> list[AdInfo]:
         data = await self._post(
@@ -136,10 +133,10 @@ class BinanceP2PAdapter:
     async def fetch_board(
         self, *, side: str, asset: str, fiat: str, payment: str | None = None
     ) -> list[BoardEntry]:
-        """Чужие объявления той же стороны.
+        """Other ads on the same side.
 
-        Binance называет стороны с точки зрения посетителя доски: наши
-        соседи по продаже перечислены как предложения BUY.
+        Binance names sides from the board visitor's point of view: our selling
+        neighbours are listed as BUY offers.
         """
         payload = {
             "asset": asset,
@@ -165,7 +162,7 @@ class BinanceP2PAdapter:
             {"advNo": external_id, "price": format(price, "f")},
         )
 
-    # --- Заказы ---
+    # --- Orders ---
 
     async def fetch_orders(self) -> list[OrderInfo]:
         data = await self._post(
@@ -177,7 +174,7 @@ class BinanceP2PAdapter:
     async def release_order(self, external_id: str) -> None:
         await self._post("/sapi/v1/c2c/agent/order/release", {"orderNumber": external_id})
 
-    # --- Разбор ответов ---
+    # --- Response parsing ---
 
     def _parse_ad(self, item: dict) -> AdInfo:
         return AdInfo(
@@ -198,8 +195,9 @@ class BinanceP2PAdapter:
         )
 
     def _parse_board_entry(self, item: dict) -> BoardEntry:
-        # Публичная витрина кладёт объявление в adv, а продавца в
-        # advertiser: цена и надёжность лежат в разных половинах ответа.
+        # The public storefront puts the ad in adv and the seller in
+        # advertiser: price and reliability live in different halves of the
+        # response.
         adv = item.get("adv") or {}
         advertiser = item.get("advertiser") or {}
         rate = optional_decimal(advertiser, "monthFinishRate")
@@ -209,9 +207,9 @@ class BinanceP2PAdapter:
             min_amount=optional_decimal(adv, "minSingleTransAmount"),
             max_amount=optional_decimal(adv, "maxSingleTransAmount"),
             merchant=str(advertiser.get("nickName") or "") or None,
-            # Витрина отдаёт долю сделок как 0.98, а правило сравнивает с
-            # процентами: приводим к одной шкале, иначе фильтр надёжности
-            # отбросит вообще всех.
+            # The storefront reports the completion share as 0.98, while the
+            # rule compares percentages: bring them to one scale, otherwise the
+            # reliability filter would drop everyone.
             completion_rate=rate * Decimal(100) if rate is not None else None,
             orders_count=_as_int(advertiser.get("monthOrderCount")),
             external_id=str(adv.get("advNo") or "") or None,

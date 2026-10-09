@@ -1,6 +1,7 @@
-"""Проверки индикаторов на значениях, которые считаются вручную.
+"""Indicator tests on values computed by hand.
 
-Смысл именно в этом: сверять реализацию с формулой, а не с самой собой.
+That's the whole point: check the implementation against the formula, not against
+itself.
 """
 
 import math
@@ -15,7 +16,7 @@ def series(*values) -> pd.Series:
     return pd.Series([float(v) for v in values], dtype="float64")
 
 
-# --- Скользящие средние ---
+# --- Moving averages ---
 
 
 def test_sma_matches_hand_calculation():
@@ -44,10 +45,10 @@ def test_ema_follows_recursive_formula():
 
 
 def test_ema_reacts_faster_than_sma():
-    """Сравнивать нужно в начале движения.
+    """The comparison has to be made at the start of the move.
 
-    Через полное окно простая средняя догоняет цену полностью, и разница
-    исчезает — преимущество EMA именно в первых барах после сдвига.
+    After a full window the simple average fully catches up with the price and the
+    difference disappears - EMA's advantage is in the first bars after the shift.
     """
     prices = series(*([10] * 10 + [20] * 2))
 
@@ -64,7 +65,7 @@ def test_invalid_period_rejected(period):
 
 
 def test_rsi_is_100_when_price_only_rises():
-    """Без единого падения сопротивления нет — RSI упирается в 100."""
+    """Without a single drop there's no resistance - RSI hits 100."""
     prices = series(*range(1, 30))
     result = indicators.rsi(prices, 14)
 
@@ -111,11 +112,11 @@ def test_macd_rejects_fast_slower_than_slow():
         indicators.macd(series(*range(1, 40)), fast=26, slow=12)
 
 
-# --- Полосы Боллинджера ---
+# --- Bollinger Bands ---
 
 
 def test_bollinger_collapses_on_flat_price():
-    """Без колебаний отклонение нулевое, полосы сходятся в среднюю."""
+    """Without fluctuations the deviation is zero and the bands collapse onto the average."""
     prices = series(*([100] * 25))
     result = indicators.bollinger(prices, 20)
 
@@ -132,17 +133,17 @@ def test_bollinger_bands_are_symmetric():
     assert result.upper.iloc[-1] - middle == pytest.approx(middle - result.lower.iloc[-1])
 
 
-# --- Пересечение EMA ---
+# --- EMA crossover ---
 
 
 def test_ema_cross_reports_event_not_state():
-    """Сигнал должен возникать в момент пересечения, а не держаться потом."""
+    """The signal must appear at the moment of the crossover, not persist afterwards."""
     prices = series(*([10] * 15 + [30] * 15))
     crosses = indicators.ema_cross(prices, 3, 10)
 
     up_points = [i for i, value in enumerate(crosses) if value == 1]
     assert len(up_points) == 1, "рост должен дать ровно одно пересечение вверх"
-    # Скачок начинается на пятнадцатой свече — раньше пересечься нечему.
+    # The jump starts on the fifteenth candle - there's nothing to cross before that.
     assert up_points[0] >= 15
 
 
@@ -159,7 +160,7 @@ def test_ema_cross_is_quiet_without_movement():
     assert set(crosses) == {0}
 
 
-# --- Вспомогательные ---
+# --- Helpers ---
 
 
 def test_to_series_accepts_decimal():

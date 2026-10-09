@@ -17,9 +17,9 @@ class Base(DeclarativeBase):
     pass
 
 
-# Движок создаётся лениво, а не на импорте модуля: иначе импорт любой
-# модели тянул бы за собой подключение драйвера PostgreSQL — и тесты на
-# SQLite, и autogenerate Alembic падали бы на ровном месте.
+# The engine is created lazily, not on module import: otherwise importing any
+# model would pull in the PostgreSQL driver connection, and both SQLite tests
+# and Alembic autogenerate would fail out of nowhere.
 @lru_cache
 def get_engine() -> AsyncEngine:
     return create_async_engine(get_settings().database_url, pool_pre_ping=True)
@@ -31,13 +31,13 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
-    """Зависимость FastAPI: сессия на запрос."""
+    """FastAPI dependency: one session per request."""
     async with get_session_factory()() as session:
         yield session
 
 
 @asynccontextmanager
 async def session_scope() -> AsyncIterator[AsyncSession]:
-    """Сессия вне FastAPI — для бота, worker'а и скриптов."""
+    """Session outside FastAPI - for the bot, the worker and scripts."""
     async with get_session_factory()() as session:
         yield session

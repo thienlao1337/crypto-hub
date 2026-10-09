@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Crypto Hub{% endblock %}</title>
 
-  {# Для вошедшего пользователя тема приезжает из его настроек прямо в
-     атрибуте выше — мигания нет по построению. Для страниц входа
-     остаётся местная память браузера: аккаунта там ещё нет. #}
+  {# For a logged-in user the theme comes from their settings straight into
+     the attribute above - no flicker by design. Login pages fall back
+     to the browser's local storage: there's no account there yet. #}
   {% if not current_user %}
   <script>
     (function () {

@@ -1,12 +1,12 @@
-"""Адаптеры P2P-площадок.
+"""P2P marketplace adapters.
 
-Проверить их против живого API нечем: доступ открыт только аккаунтам со
-статусом рекламодателя или мерчанта. Поэтому проверяется то, что от него
-не зависит: подпись запроса, перевод отказов в понятные ошибки и разбор
-ответа — включая случай, когда формат ответа изменился.
+There's no way to test them against the live API: access is only open to accounts with
+advertiser or merchant status. So we test what doesn't depend on it: request signing,
+turning rejections into clear errors and response parsing - including the case where the
+response format has changed.
 
-Последнее здесь важнее обычного. Цена объявления — это деньги, и молча
-подставленный ноль вместо изменившегося поля хуже громкого отказа.
+The last one matters more than usual here. An ad price is money, and a zero silently
+substituted for a changed field is worse than a loud failure.
 """
 
 import hashlib
@@ -21,8 +21,8 @@ from app.exchanges.p2p.base import P2PAccessDenied, P2PError, P2PResponseError
 from app.exchanges.p2p.binance import BinanceP2PAdapter
 from app.exchanges.p2p.bybit import BybitP2PAdapter
 
-# Ключи такие же, как выдают биржи: латиница и цифры. Заголовки HTTP
-# другого и не принимают.
+# Keys look like the ones exchanges issue: Latin letters and digits. HTTP
+# headers accept nothing else anyway.
 KEY = "bybitKey1234567890"
 SECRET = "bybitSecret0987654321"
 
@@ -31,11 +31,11 @@ def transport(handler) -> httpx.MockTransport:
     return httpx.MockTransport(handler)
 
 
-# --- Подпись ---
+# --- Signing ---
 
 
 def test_bybit_signature_matches_documented_scheme():
-    """Порядок частей задан биржей: перестановка даст отказ сервера."""
+    """The order of parts is defined by the exchange: reordering gets rejected by the server."""
     adapter = BybitP2PAdapter(KEY, SECRET)
 
     signature = adapter.sign("1700000000000", '{"page":1}')
@@ -49,7 +49,7 @@ def test_bybit_signature_matches_documented_scheme():
 
 
 def test_binance_signature_is_taken_from_the_exact_query():
-    """Подпись считается ровно от той строки, которая уйдёт на сервер."""
+    """The signature is computed over exactly the string that will be sent to the server."""
     adapter = BinanceP2PAdapter(KEY, SECRET)
 
     query = "page=1&rows=10&timestamp=1700000000000"
@@ -69,17 +69,17 @@ def test_binance_signed_query_carries_signature_and_timestamp():
 
 
 def test_secret_never_travels_in_the_request():
-    """Подпись — это всё, что уходит наружу; сам секрет остаётся у нас."""
+    """The signature is all that goes outside; the secret itself stays with us."""
     adapter = BinanceP2PAdapter(KEY, SECRET)
 
     assert SECRET not in adapter._signed_query({"page": 1})
 
 
-# --- Отказ из-за отсутствия статуса ---
+# --- Rejection due to missing status ---
 
 
 async def test_bybit_reports_missing_advertiser_status():
-    """Такой отказ чинится заявкой на площадке, а не повтором запроса."""
+    """Such a rejection is fixed by applying on the marketplace, not by retrying."""
 
     def handler(request):
         return httpx.Response(200, json={"retCode": 10005, "retMsg": "permission denied"})
@@ -120,7 +120,7 @@ async def test_bybit_access_check_passes_on_success():
 
 
 async def test_platform_error_text_does_not_leak_outside():
-    """В тексте площадки бывает и адрес запроса, и служебные поля."""
+    """The marketplace's text may contain the request URL and service fields."""
 
     def handler(request):
         return httpx.Response(
@@ -142,7 +142,7 @@ async def test_platform_error_text_does_not_leak_outside():
     assert "33004" in str(info.value)
 
 
-# --- Разбор ответов ---
+# --- Response parsing ---
 
 
 async def test_bybit_board_is_parsed():
@@ -182,7 +182,7 @@ async def test_bybit_board_is_parsed():
 
 
 async def test_missing_price_field_fails_loudly():
-    """Изменился формат ответа — лучше отказ, чем цена из ниоткуда."""
+    """The response format changed - a failure is better than a price out of nowhere."""
 
     def handler(request):
         return httpx.Response(
@@ -200,7 +200,7 @@ async def test_missing_price_field_fails_loudly():
 
 
 async def test_binance_board_normalises_completion_rate():
-    """Витрина отдаёт долю как 0.98, а правило сравнивает с процентами."""
+    """The storefront reports the share as 0.98, while the rule compares percentages."""
 
     def handler(request):
         return httpx.Response(
@@ -269,11 +269,11 @@ async def test_binance_ad_is_parsed():
     assert ads[0].payment_methods == ["TinkoffNew"]
 
 
-# --- Обновление цены ---
+# --- Price update ---
 
 
 async def test_bybit_update_sends_price_without_exponent():
-    """Decimal умеет выдавать 1E+2 — площадка такую цену не поймёт."""
+    """Decimal can produce 1E+2 - the marketplace won't understand such a price."""
     sent = {}
 
     def handler(request):

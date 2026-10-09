@@ -30,7 +30,7 @@ async def hour(session):
     return await candle_service.get_timeframe(session, "1h")
 
 
-# --- Загрузка ---
+# --- Loading ---
 
 
 async def test_sync_stores_candles(session, market, hour):
@@ -58,7 +58,7 @@ async def test_sync_is_idempotent(session, market, hour):
 
 
 async def test_last_candle_is_open_and_gets_updated(session, market, hour):
-    """Свеча текущего периода ещё формируется и должна перезаписываться."""
+    """The current period's candle is still forming and must be overwritten."""
     bars = fakes.hourly_bars(3)
     await candle_service.sync_candles(session, market, hour, fakes.FakeAdapter(bars=bars))
     await session.commit()
@@ -66,7 +66,7 @@ async def test_last_candle_is_open_and_gets_updated(session, market, hour):
     rows = await candle_service.stored_candles(session, market, hour)
     assert [row.is_closed for row in rows] == [True, True, False]
 
-    # Тот же период, но цена ушла дальше.
+    # Same period, but the price moved further.
     changed = list(bars)
     changed[-1] = fakes.bar(bars[-1].open_time, "999")
     await candle_service.sync_candles(session, market, hour, fakes.FakeAdapter(bars=changed))
@@ -78,7 +78,7 @@ async def test_last_candle_is_open_and_gets_updated(session, market, hour):
 
 
 async def test_closed_candle_is_not_rewritten(session, market, hour):
-    """У закрытой свечи значения окончательны."""
+    """A closed candle has final values."""
     bars = fakes.hourly_bars(3)
     await candle_service.sync_candles(session, market, hour, fakes.FakeAdapter(bars=bars))
     await session.commit()
@@ -111,7 +111,7 @@ async def test_freshness_check(session, market, hour):
 
 
 async def test_stale_data_survives_exchange_failure(session, market, hour):
-    """Отказ биржи не должен оставлять пользователя с пустым графиком."""
+    """An exchange rejection must not leave the user with an empty chart."""
     await candle_service.sync_candles(
         session, market, hour, fakes.FakeAdapter(bars=fakes.hourly_bars(5))
     )
@@ -126,13 +126,13 @@ async def test_stale_data_survives_exchange_failure(session, market, hour):
     assert broken.closed, "подключение к бирже закрывается даже при ошибке"
 
 
-# --- Индикаторы для графика ---
+# --- Indicators for the chart ---
 
 
 async def test_indicator_series_align_with_candles(session, market, hour):
-    """Ряды индикаторов должны покрывать все свечи.
+    """Indicator series must cover all candles.
 
-    Пропуск начальных точек сдвигал бы панель RSI относительно цены.
+    Skipping the initial points would shift the RSI panel relative to the price.
     """
     await candle_service.sync_candles(
         session, market, hour, fakes.FakeAdapter(bars=fakes.hourly_bars(60))
@@ -144,7 +144,7 @@ async def test_indicator_series_align_with_candles(session, market, hour):
 
     assert len(result["ema9"]) == len(candles)
     assert len(result["rsi"]) == len(candles)
-    # Первые точки RSI пустые: истории ещё не хватает.
+    # The first RSI points are empty: not enough history yet.
     assert "value" not in result["rsi"][0]
     assert "value" in result["rsi"][-1]
 

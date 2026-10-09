@@ -15,7 +15,7 @@ API_SECRET = "bybit-api-secret-value"
 
 @pytest_asyncio.fixture
 async def exchange(session):
-    """Справочник бирж в тестах заводим руками: он живёт в миграции."""
+    """The exchange reference table is created by hand in tests: it lives in a migration."""
     row = Exchange(code="bybit", name="Bybit", is_active=True, supports_testnet=True)
     session.add(row)
     await session.commit()
@@ -31,7 +31,7 @@ async def user(session):
     return row
 
 
-# --- Подключение ключа ---
+# --- Connecting a key ---
 
 
 async def test_key_is_stored_encrypted(session, exchange, user):
@@ -69,7 +69,7 @@ async def test_masked_key_hides_beginning(session, exchange, user):
 
 
 async def _stored_accounts_count(session) -> int:
-    """Считаем прямым запросом: после rollback объекты сессии протухают."""
+    """Count with a direct query: after rollback the session objects expire."""
     result = await session.execute(select(ExchangeAccount))
     return len(result.scalars().all())
 
@@ -94,7 +94,7 @@ async def test_rejected_key_is_not_saved(session, exchange, user):
 
 
 async def test_network_failure_does_not_save_key(session, exchange, user):
-    """Сбой связи не должен приводить к сохранению непроверенного ключа."""
+    """A connection failure must not result in saving an unverified key."""
     adapter = fakes.FakeAdapter(raise_on="check_key")
 
     with pytest.raises(keys.KeyRejected):
@@ -112,7 +112,7 @@ async def test_network_failure_does_not_save_key(session, exchange, user):
     assert adapter.closed
 
 
-# --- Права на торговлю ---
+# --- Trading permissions ---
 
 
 async def test_trading_requires_both_request_and_exchange_confirmation(session, exchange, user):
@@ -134,7 +134,7 @@ async def test_trading_requires_both_request_and_exchange_confirmation(session, 
 
 
 async def test_trading_denied_when_exchange_does_not_confirm(session, exchange, user):
-    """Ключ рабочий, но право торговать биржа не подтвердила."""
+    """The key works, but the exchange didn't confirm trading permission."""
     adapter = fakes.FakeAdapter(
         key_check=KeyCheck(is_valid=True, can_trade=False, permissions_known=True)
     )
@@ -150,7 +150,7 @@ async def test_trading_denied_when_exchange_does_not_confirm(session, exchange, 
 
 
 async def test_trading_denied_when_permissions_unknown(session, exchange, user):
-    """Права выяснить не удалось — торговлю не включаем."""
+    """Permissions couldn't be determined - trading is not enabled."""
     adapter = fakes.FakeAdapter(
         key_check=KeyCheck(is_valid=True, can_trade=False, permissions_known=False)
     )
@@ -195,7 +195,7 @@ async def test_recheck_restores_status(session, exchange, user):
     assert account.last_error is None
 
 
-# --- Изоляция и журнал ---
+# --- Isolation and the log ---
 
 
 async def test_other_users_key_is_not_accessible(session, exchange, user):
@@ -213,7 +213,7 @@ async def test_other_users_key_is_not_accessible(session, exchange, user):
     with pytest.raises(keys.AccountNotFound):
         await keys.get_account(session, stranger, account.id)
 
-    # А владельцу — доступен.
+    # But the owner has access.
     assert (await keys.get_account(session, user, account.id)).id == account.id
 
 
@@ -266,7 +266,7 @@ def test_mask_key(api_key, expected):
 
 
 async def test_testnet_refused_for_exchange_without_sandbox(session, exchange, user):
-    """Признак песочницы лежит в справочнике, чтобы клиент правил его сам."""
+    """The sandbox flag lives in the reference table so the client can edit it themselves."""
     exchange.supports_testnet = False
     await session.flush()
 
@@ -282,7 +282,8 @@ async def test_testnet_refused_for_exchange_without_sandbox(session, exchange, u
             adapter_factory=fakes.factory_for(adapter),
         )
 
-    # До биржи дело дойти не должно: спрашивать несуществующую сеть незачем.
+    # It must not get as far as the exchange: there's no point querying a
+    # network that doesn't exist.
     assert adapter.calls == []
 
 

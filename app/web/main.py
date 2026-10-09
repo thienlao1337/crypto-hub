@@ -1,4 +1,4 @@
-"""Точка входа веб-панели."""
+"""Web panel entry point."""
 
 import logging
 from contextlib import asynccontextmanager
@@ -30,8 +30,9 @@ from app.web.routers import signals as signals_router
 from app.web.routers import tools as tools_router
 from app.web.templates_env import STATIC_DIR, templates
 
-# Uvicorn настраивает только свои логгеры, поэтому предупреждения наших
-# модулей иначе никуда не попадают — и разбирать сбой приходится вслепую.
+# Uvicorn only configures its own loggers, so warnings from our modules
+# wouldn't go anywhere otherwise - and failures would have to be debugged
+# blind.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
@@ -42,14 +43,14 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Завести владельца, если база ещё пуста.
+    """Create the owner if the database is still empty.
 
-    Ошибку здесь не превращаем в падение процесса: контейнер иначе уходит
-    в цикл перезапусков, и в логах теряется исходная причина. Проблему
-    видно по /healthz и по записи ниже.
+    An error here isn't turned into a process crash: otherwise the container goes into a
+    restart loop and the original cause gets lost in the logs. The problem shows up in
+    /healthz and in the log entry below.
     """
-    # Раньше всего остального: настройки из примера — это открытая дверь,
-    # и подниматься с ними нельзя.
+    # Before anything else: example settings are an open door, and the app must
+    # not start with them.
     verify_deployment(settings)
 
     try:
@@ -62,16 +63,16 @@ async def lifespan(app: FastAPI):
             await session.commit()
         if owner is not None:
             logger.warning(
-                "Создан владелец %s из SEED_OWNER_*. Смените пароль после первого входа.",
+                "Created owner %s from SEED_OWNER_*. Change the password after the first login.",
                 owner.email,
             )
     except Exception:
-        logger.exception("Не удалось создать владельца при старте")
+        logger.exception("Could not create the owner on startup")
 
     yield
 
-    # Подписки на биржи держит один общий мультиплексор — при остановке
-    # его надо погасить, иначе соединения зависают до таймаута.
+    # Exchange subscriptions are held by one shared multiplexer - it must be
+    # shut down on stop, otherwise connections hang until timeout.
     await hub.close()
 
 
@@ -102,7 +103,7 @@ app.include_router(invites_router.router)
 app.include_router(push_router.router)
 
 
-# --- Общие обработчики ошибок ---
+# --- Common error handlers ---
 
 
 @app.exception_handler(auth.LoginRequired)
@@ -132,8 +133,8 @@ async def handle_csrf_invalid(request: Request, exc: auth.CsrfInvalid):
 
 @app.exception_handler(Exception)
 async def handle_unexpected(request: Request, exc: Exception):
-    """Один общий обработчик: панель не должна падать белым экраном."""
-    logger.exception("Необработанная ошибка на %s %s", request.method, request.url.path)
+    """One shared handler: the panel must never fail with a blank white screen."""
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
     return templates.TemplateResponse(
         request,
         "error.html",
@@ -147,7 +148,7 @@ async def handle_unexpected(request: Request, exc: Exception):
 
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
-    """Проверка живости процесса и соединения с БД."""
+    """Liveness check of the process and the DB connection."""
     async with get_engine().connect() as conn:
         await conn.execute(text("SELECT 1"))
     return {"status": "ok", "app": settings.app_name}

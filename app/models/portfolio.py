@@ -21,10 +21,10 @@ SIDE_SELL = "sell"
 
 
 class Balance(Base):
-    """Текущий баланс по монете на одном подключённом аккаунте биржи.
+    """Current balance of a coin on one connected exchange account.
 
-    Перезаписывается при каждой синхронизации: это срез «сейчас».
-    Историю стоимости портфеля ведёт portfolio_snapshots.
+    Overwritten on every sync: it's a "now" snapshot. Portfolio value history is kept in
+    portfolio_snapshots.
     """
 
     __tablename__ = "balances"
@@ -50,11 +50,10 @@ class Balance(Base):
 
 
 class PortfolioSnapshot(Base):
-    """Точка на графике стоимости портфеля.
+    """A point on the portfolio value chart.
 
-    breakdown хранит разбивку по биржам и монетам на момент снимка —
-    чтобы график за прошлый месяц не пересчитывался задним числом по
-    сегодняшним ценам.
+    breakdown stores the split by exchange and coin at the time of the snapshot, so last
+    month's chart isn't recomputed retroactively at today's prices.
     """
 
     __tablename__ = "portfolio_snapshots"
@@ -69,10 +68,10 @@ class PortfolioSnapshot(Base):
 
 
 class Trade(Base):
-    """Исполненная сделка, поднятая из истории биржи.
+    """An executed trade pulled from the exchange history.
 
-    external_id — идентификатор сделки у биржи; уникальность по нему в
-    паре с аккаунтом делает повторную синхронизацию идемпотентной.
+    external_id is the exchange's trade id; uniqueness on it together with the account
+    makes re-syncing idempotent.
     """
 
     __tablename__ = "trades"
@@ -97,11 +96,11 @@ class Trade(Base):
 
     fee: Mapped[Decimal | None] = mapped_column(Amount, nullable=True)
     fee_asset_id: Mapped[int | None] = mapped_column(ForeignKey("assets.id"), nullable=True)
-    # Заполняется только когда сделка закрывает позицию.
+    # Filled only when the trade closes a position.
     realized_pnl: Mapped[Decimal | None] = mapped_column(Usd, nullable=True)
 
     executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # Сырой ответ биржи — на случай разбирательства с расхождением цифр.
+    # Raw exchange response - in case we need to investigate mismatched numbers.
     raw: Mapped[dict | None] = mapped_column(JsonB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -111,10 +110,10 @@ class Trade(Base):
 
 
 class Position(Base):
-    """Открытая позиция с нереализованным PnL.
+    """An open position with unrealized PnL.
 
-    Для деривативов приходит с биржи как есть. Для спота собирается из
-    trades: средняя цена входа против текущей котировки.
+    For derivatives it comes from the exchange as is. For spot it is built from trades:
+    average entry price against the current quote.
     """
 
     __tablename__ = "positions"
@@ -133,9 +132,9 @@ class Position(Base):
     unrealized_pnl: Mapped[Decimal | None] = mapped_column(Usd, nullable=True)
     leverage: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Средняя цена входа надёжна только если история сделок поднята
-    # целиком. Биржи отдают ограниченный период, поэтому флаг честно
-    # говорит интерфейсу, что цифру надо показать с оговоркой.
+    # The average entry price is reliable only if the full trade history was
+    # pulled. Exchanges return a limited period, so this flag honestly tells
+    # the UI to show the number with a caveat.
     cost_basis_complete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     is_open: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -148,7 +147,7 @@ class Position(Base):
 
 
 class WatchlistItem(Base):
-    """Пара в личном списке отслеживания."""
+    """A pair in the personal watchlist."""
 
     __tablename__ = "watchlist_items"
     __table_args__ = (UniqueConstraint("user_id", "market_id"),)

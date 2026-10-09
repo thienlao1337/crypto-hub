@@ -1,7 +1,7 @@
-"""Запись значимых действий и попыток входа.
+"""Recording of significant actions and login attempts.
 
-Вызывается из роутеров и сервисов там, где событие должно остаться в
-истории. Ничего не возвращает наружу и никогда не пишет секреты.
+Called from routers and services wherever an event must stay in the history. Returns
+nothing and never writes secrets.
 """
 
 from sqlalchemy import select
@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AuditLog, LoginEvent
 
-# Действия, которые обязаны быть восстановимы постфактум.
+# Actions that must be reconstructable after the fact.
 ACTION_USER_REGISTERED = "user.registered"
 ACTION_PASSWORD_CHANGED = "user.password_changed"
 ACTION_TOTP_ENABLED = "user.totp_enabled"
@@ -65,10 +65,10 @@ async def log_login(
     ip: str | None = None,
     user_agent: str | None = None,
 ) -> LoginEvent:
-    """Пишем и удачные, и неудачные попытки.
+    """We record both successful and failed attempts.
 
-    Неудачные — по email, даже когда такого пользователя нет: иначе
-    перебор чужих адресов не оставит следов.
+    Failed ones by email, even when no such user exists: otherwise brute-forcing other
+    people's addresses would leave no trace.
     """
     event = LoginEvent(
         user_id=user_id,
@@ -104,7 +104,7 @@ async def recent_actions(session: AsyncSession, user_id: int, limit: int = 50) -
 
 
 def _trim(value: str | None, length: int) -> str | None:
-    """User-Agent приходит произвольной длины и не должен ронять вставку."""
+    """User-Agent arrives with arbitrary length and must not break the insert."""
     if value is None:
         return None
     return value[:length]

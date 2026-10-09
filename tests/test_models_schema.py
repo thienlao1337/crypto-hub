@@ -1,7 +1,7 @@
-"""Проверки целостности схемы.
+"""Schema integrity checks.
 
-Ловят опечатки в связях и внешних ключах на этапе тестов, а не при
-первой миграции на живой базе.
+They catch typos in relationships and foreign keys at test time, not during the first
+migration on a live database.
 """
 
 from decimal import Decimal
@@ -13,7 +13,7 @@ from app.models import Asset, Exchange, Market, Timeframe
 
 
 async def test_all_tables_created(engine):
-    """Метаданные разворачиваются в реальные таблицы без конфликтов."""
+    """The metadata creates real tables without conflicts."""
     def _tables(conn):
         return set(inspect(conn).get_table_names())
 
@@ -56,10 +56,10 @@ async def test_all_tables_created(engine):
 
 
 async def test_all_relationships_resolve():
-    """Все строковые ссылки в relationship() указывают на живые классы.
+    """All string references in relationship() point to existing classes.
 
-    SQLAlchemy разрешает их лениво, поэтому опечатка вылезает только при
-    первом обращении — здесь мы заставляем разрешить их разом.
+    SQLAlchemy resolves them lazily, so a typo only surfaces on first access - here we
+    force them all to resolve at once.
     """
     for name in models.__all__:
         obj = getattr(models, name)
@@ -71,7 +71,7 @@ async def test_all_relationships_resolve():
 
 
 async def test_decimal_survives_roundtrip(session):
-    """Количества не теряют точность при записи и чтении."""
+    """Quantities don't lose precision on write and read."""
     exchange = Exchange(code="bybit", name="Bybit")
     base = Asset(symbol="BTC", name="Bitcoin")
     quote = Asset(symbol="USDT", name="Tether")

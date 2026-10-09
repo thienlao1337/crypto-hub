@@ -13,15 +13,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 
-# Роли не выносим в справочник: это не бизнес-справочник, который клиент
-# правит из админки, а два кодовых уровня доступа, завязанных на проверки
-# в коде. Справочники здесь — статусы, категории, типы алертов.
+# Roles aren't a reference table: this isn't business reference data the client
+# edits in the admin panel, but two hard-coded access levels tied to checks in
+# code. Reference tables here are statuses, categories, alert types.
 ROLE_OWNER = "owner"
 ROLE_USER = "user"
 
 
 class User(Base):
-    """Пользователь веб-панели. Регистрация — только по инвайту."""
+    """Web panel user. Registration is invite-only."""
 
     __tablename__ = "users"
 
@@ -31,13 +31,14 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16), default=ROLE_USER, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    # --- Двухфакторная аутентификация ---
-    # Секрет TOTP шифруется тем же ключом, что и API-ключи бирж.
+    # --- Two-factor authentication ---
+    # The TOTP secret is encrypted with the same key as exchange API keys.
     totp_secret_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    # --- Привязка Telegram ---
-    # Код одноразовый: генерируется в вебе, отправляется боту, гасится.
+    # --- Telegram linking ---
+    # The code is single-use: generated on the web, sent to the bot, then
+    # invalidated.
     telegram_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
     telegram_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     telegram_link_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -45,7 +46,7 @@ class User(Base):
         DateTime(timezone=True), nullable=True
     )
 
-    # --- Предпочтения ---
+    # --- Preferences ---
     base_currency: Mapped[str] = mapped_column(String(8), default="USD", nullable=False)
     theme: Mapped[str] = mapped_column(String(16), default="dark", nullable=False)
     timezone: Mapped[str] = mapped_column(String(64), default="UTC", nullable=False)
@@ -66,13 +67,13 @@ class User(Base):
 
 
 class UserRecoveryCode(Base):
-    """Одноразовый код восстановления на случай потери 2FA-устройства."""
+    """Single-use recovery code in case the 2FA device is lost."""
 
     __tablename__ = "user_recovery_codes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    # Хранится хеш, не сам код — как и пароль.
+    # A hash is stored, not the code itself - same as the password.
     code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -82,7 +83,7 @@ class UserRecoveryCode(Base):
 
 
 class Invite(Base):
-    """Приглашение на регистрацию. Выдаётся владельцем из админки."""
+    """Registration invite. Issued by the owner from the admin panel."""
 
     __tablename__ = "invites"
 
@@ -91,7 +92,7 @@ class Invite(Base):
     created_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    # Если задан — инвайт сработает только для этого адреса.
+    # If set, the invite only works for this address.
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -109,7 +110,7 @@ class Invite(Base):
 
 
 class LoginEvent(Base):
-    """История входов — отдельные записи, не перезапись last_login_at."""
+    """Login history - separate rows, not an overwritten last_login_at."""
 
     __tablename__ = "login_events"
 
@@ -117,7 +118,7 @@ class LoginEvent(Base):
     user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
-    # Логин пишем и при неудачной попытке, когда пользователя может не быть.
+    # The login is recorded even on a failed attempt, when the user may not exist.
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     is_success: Mapped[bool] = mapped_column(Boolean, nullable=False)
     failure_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)

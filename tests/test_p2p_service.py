@@ -1,8 +1,8 @@
-"""P2P-сервис: синхронизация объявлений, правило, журнал.
+"""P2P service: ad sync, rule, log.
 
-Как и у автотрейдинга, проверяется в первую очередь то, чего бот делать
-не должен: двигать цену при выключенном рубильнике, работать сразу после
-сохранения правила и менять объявление в режиме наблюдения.
+As with auto-trading, what's tested first and foremost is what the bot must not do: move
+the price with the kill switch off, start working right after a rule is saved, or change
+the ad in observe mode.
 """
 
 from decimal import Decimal
@@ -21,7 +21,7 @@ from tests import fakes
 
 
 class FakeP2P:
-    """Площадка с заранее заданной доской и записью того, что ей послали."""
+    """A marketplace with a predefined board that records what it was sent."""
 
     def __init__(self, ads=None, board=None, access=True, fail_update=False, orders=None):
         self._ads = ads or []
@@ -121,11 +121,11 @@ async def make_rule(session, ad, **overrides):
     return await p2p_service.save_rule(session, ad, **params)
 
 
-# --- Доступ ---
+# --- Access ---
 
 
 async def test_access_is_confirmed_by_the_platform(session, setup):
-    """Право подтверждает площадка, а не галочка в форме."""
+    """The permission is confirmed by the marketplace, not by a checkbox in the form."""
     account = setup["account"]
     account.allow_p2p = False
     await session.flush()
@@ -142,7 +142,7 @@ async def test_refused_access_is_remembered_with_reason(session, setup):
     assert "нет статуса" in account.last_error
 
 
-# --- Синхронизация объявлений ---
+# --- Ad sync ---
 
 
 async def test_ads_are_mirrored(session, setup):
@@ -163,7 +163,7 @@ async def test_sync_is_idempotent(session, setup):
 
 
 async def test_vanished_ad_is_closed_not_deleted(session, setup):
-    """К объявлению привязаны правило и журнал — терять их незачем."""
+    """The rule and the log are attached to the ad - no reason to lose them."""
     await make_ad(session, setup)
     await p2p_service.sync_ads(session, setup["account"], FakeP2P(ads=[]))
     await session.commit()
@@ -172,7 +172,7 @@ async def test_vanished_ad_is_closed_not_deleted(session, setup):
     assert ad.status == "closed"
 
 
-# --- Правило ---
+# --- Rule ---
 
 
 @pytest.mark.parametrize(
@@ -181,7 +181,7 @@ async def test_vanished_ad_is_closed_not_deleted(session, setup):
         {"target_position": 0},
         {"step": Decimal(0)},
         {"min_change": Decimal(0)},
-        # Вырожденный коридор: цене некуда двигаться.
+        # A degenerate corridor: the price has nowhere to move.
         {"floor_pct": Decimal(5), "ceiling_pct": Decimal(5)},
         {"floor_pct": Decimal(5), "ceiling_pct": Decimal(-2)},
     ],
@@ -194,7 +194,7 @@ async def test_unsafe_rule_is_refused(session, setup, params):
 
 
 async def test_rule_starts_stopped_and_observing(session, setup):
-    """Правило, которое двигает цену сразу после сохранения, — настройка вслепую."""
+    """A rule that moves the price right after saving is configuration in the dark."""
     ad = await make_ad(session, setup)
     rule = await make_rule(session, ad)
 
@@ -203,7 +203,7 @@ async def test_rule_starts_stopped_and_observing(session, setup):
 
 
 async def test_mode_change_stops_the_rule(session, setup):
-    """Запуск — отдельное действие, а не побочный эффект настройки."""
+    """Starting is a separate action, not a side effect of configuration."""
     ad = await make_ad(session, setup)
     rule = await make_rule(session, ad)
     await p2p_service.set_active(session, ad, rule, True)
@@ -214,7 +214,7 @@ async def test_mode_change_stops_the_rule(session, setup):
     assert rule.is_active is False
 
 
-# --- Применение ---
+# --- Applying ---
 
 
 async def test_observe_mode_writes_but_does_not_touch_the_ad(session, setup):
@@ -247,13 +247,13 @@ async def test_live_mode_moves_the_price(session, setup):
     assert external_id == "42"
     assert ad.price == price
     assert event.event_type == EVENT_REPRICED
-    # В журнале должно быть видно, от чего отталкивались.
+    # The log must show what the decision was based on.
     assert event.competitor_price == Decimal(100)
     assert event.spot_price == Decimal(102), "опора — середина доски"
 
 
 async def test_global_switch_blocks_everything(session, setup, monkeypatch):
-    """Выключенный рубильник важнее любых настроек правила."""
+    """A switched-off kill switch beats any rule settings."""
     monkeypatch.setattr(p2p_service.settings, "p2p_enabled", False, raising=False)
 
     ad = await make_ad(session, setup)
@@ -294,7 +294,7 @@ async def test_platform_refusal_is_journalled_not_swallowed(session, setup):
 
 
 async def test_own_ad_on_the_board_is_not_chased(session, setup):
-    """Иначе бот перебивает сам себя и уезжает в пол."""
+    """Otherwise the bot outbids itself and sinks to the floor."""
     ad = await make_ad(session, setup)
     rule = await make_rule(session, ad)
     await p2p_service.set_mode(session, ad, rule, RULE_LIVE)
@@ -323,13 +323,13 @@ async def test_journal_keeps_the_full_picture(session, setup):
     kinds = [event.event_type for event in events]
 
     assert EVENT_REPRICED in kinds
-    # Настройка и запуск тоже в журнале: «кто это включил» — вопрос не
-    # менее частый, чем «почему подвинулась цена».
+    # Configuration and starting are logged too: "who turned this on" is asked
+    # just as often as "why did the price move".
     assert any("Правило" in event.message for event in events)
 
 
 async def test_editing_a_running_rule_stops_it(session, setup):
-    """Сдвинуть коридор на ходу — значит переставить цену по непроверенным границам."""
+    """Shifting the corridor on the fly means repricing to unchecked bounds."""
     ad = await make_ad(session, setup)
     rule = await make_rule(session, ad)
     await p2p_service.set_mode(session, ad, rule, RULE_LIVE)
@@ -345,10 +345,10 @@ async def test_editing_a_running_rule_stops_it(session, setup):
 
 
 async def test_repeated_no_op_is_not_journalled_again(session, setup):
-    """Правило считается раз в минуту — это полторы тысячи строк в сутки.
+    """The rule is evaluated once a minute - fifteen hundred rows a day.
 
-    Журнал, в котором нельзя найти единственную важную запись, — не
-    журнал. Повтор того же решения подряд не пишется.
+    A log where you can't find the one important entry isn't a log. A consecutive repeat
+    of the same decision isn't written.
     """
     ad = await make_ad(session, setup)
     rule = await make_rule(session, ad)
@@ -370,7 +370,7 @@ async def test_repeated_no_op_is_not_journalled_again(session, setup):
 
 
 async def test_changed_decision_is_journalled(session, setup):
-    """Схлопывается повтор, а не изменение: доска поехала — запись нужна."""
+    """Repeats are collapsed, changes are not: the board moved - an entry is needed."""
     ad = await make_ad(session, setup)
     rule = await make_rule(session, ad)
     await p2p_service.set_active(session, ad, rule, True)
@@ -387,7 +387,7 @@ async def test_changed_decision_is_journalled(session, setup):
 
 
 async def test_price_moves_are_never_collapsed(session, setup):
-    """Смена цены — всегда запись, сколько бы раз подряд она ни повторялась."""
+    """A price change is always recorded, however many times in a row it repeats."""
     ad = await make_ad(session, setup)
     rule = await make_rule(session, ad, min_change=Decimal("0.001"))
     await p2p_service.set_mode(session, ad, rule, RULE_LIVE)
@@ -403,7 +403,7 @@ async def test_price_moves_are_never_collapsed(session, setup):
     assert len([e for e in events if e.event_type == EVENT_REPRICED]) == 3
 
 
-# --- Заказы и отпуск средств ---
+# --- Orders and releasing funds ---
 
 
 def order_info(external_id="ord-1", status="paid") -> OrderInfo:
@@ -449,9 +449,9 @@ async def test_order_sync_is_idempotent(session, setup):
 
 
 async def test_release_is_refused_without_a_configured_verifier(session, setup):
-    """Отметку «оплачено» ставит покупатель — это не подтверждение прихода.
+    """The "paid" mark is set by the buyer - it's not a confirmation of arrival.
 
-    Отпускать по ней значит отдавать деньги любому, кто нажал кнопку.
+    Releasing on it means handing money to anyone who pressed a button.
     """
     platform = FakeP2P(orders=[order_info()])
     await p2p_service.sync_orders(session, setup["account"], platform)
@@ -481,7 +481,7 @@ async def test_release_goes_through_when_payment_is_confirmed(session, setup):
 
 
 async def test_release_twice_is_refused(session, setup):
-    """Повторный отпуск — это вторая выдача одних и тех же денег."""
+    """A repeated release is paying out the same money twice."""
     platform = FakeP2P(orders=[order_info()])
     await p2p_service.sync_orders(session, setup["account"], platform)
     order = (await session.execute(select(P2POrder))).scalar_one()

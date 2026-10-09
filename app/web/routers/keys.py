@@ -1,4 +1,4 @@
-"""Подключение бирж: добавление, проверка и удаление API-ключей."""
+"""Exchange connections: adding, verifying and deleting API keys."""
 
 import logging
 
@@ -68,10 +68,10 @@ async def add_key(
             want_trading=want_trading,
         )
     except keys_service.ExchangeKeyError as exc:
-        # После отката все загруженные объекты протухают, и обращение к
-        # любому их полю тянет SELECT из синхронного кода. Поэтому здесь
-        # не отрисовываем страницу, а перенаправляем: следующий запрос
-        # начнётся с чистой сессией.
+        # After a rollback all loaded objects expire, and accessing any of
+        # their fields triggers a SELECT from synchronous code. So instead of
+        # rendering the page we redirect: the next request starts with a clean
+        # session.
         await session.rollback()
         flash.error(request, str(exc))
         return RedirectResponse(PAGE, status_code=303)
@@ -97,11 +97,11 @@ async def request_p2p(
     user: User = Depends(auth.require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Запросить у площадки доступ к P2P для этого ключа.
+    """Ask the marketplace for P2P access for this key.
 
-    Отдельным действием, а не галочкой при добавлении: статус
-    рекламодателя или мерчанта оформляется на площадке и появляется
-    позже, когда ключ уже подключён.
+    A separate action rather than a checkbox when adding: advertiser or merchant status
+    is obtained on the marketplace and shows up later, when the key is already
+    connected.
     """
     auth.verify_csrf(request, csrf_token)
 
@@ -116,7 +116,7 @@ async def request_p2p(
         allowed = await p2p_service.verify_access(session, account, adapter)
     except Exception as exc:
         await session.rollback()
-        logger.warning("Проверка доступа к P2P для %s не удалась: %s", account_id, exc)
+        logger.warning("P2P access check for %s failed: %s", account_id, exc)
         flash.error(request, "Не удалось проверить доступ к P2P. Попробуйте позже.")
         return RedirectResponse(PAGE, status_code=303)
     finally:

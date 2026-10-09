@@ -1,7 +1,6 @@
-"""ORM-модели.
+"""ORM models.
 
-Импортируются здесь целиком, чтобы Alembic видел все таблицы при
-автогенерации миграций.
+All imported here so that Alembic sees every table when autogenerating migrations.
 """
 
 from app.db import Base

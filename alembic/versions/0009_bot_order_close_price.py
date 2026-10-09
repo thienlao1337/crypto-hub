@@ -1,7 +1,7 @@
 """bot order close price
 
-Цена выхода из позиции. Результат сделки хранился, а по какой цене она
-закрылась — нет, и в таблице ордеров это было видно только по журналу.
+Exit price of a position. The trade result was stored, but the price it closed at was
+not - in the orders table that was only visible from the log.
 
 Revision ID: 0009
 Revises: 0008

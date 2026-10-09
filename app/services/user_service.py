@@ -1,7 +1,7 @@
-"""Аккаунты: регистрация, вход, пароль, двухфакторная аутентификация.
+"""Accounts: registration, login, password, two-factor authentication.
 
-Роутеры и хендлеры бота работают только через эти функции — проверки
-доступа и записи в аудит не должны разъезжаться по слоям представления.
+Routers and bot handlers work only through these functions - access checks and audit
+records must not drift apart across presentation layers.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -18,15 +18,15 @@ MIN_PASSWORD_LENGTH = 10
 RECOVERY_CODES_COUNT = 10
 TELEGRAM_CODE_TTL = timedelta(minutes=15)
 
-# Ограничение перебора: после стольких неудач подряд адрес временно
-# блокируется. Счёт ведётся по login_events, поэтому работает одинаково
-# во всех процессах и переживает перезапуск.
+# Brute-force limit: after this many failures in a row the address is
+# temporarily locked. The count is kept in login_events, so it works the same
+# across all processes and survives restarts.
 LOGIN_ATTEMPT_WINDOW = timedelta(minutes=15)
 MAX_FAILED_ATTEMPTS = 10
 
 
 class UserServiceError(Exception):
-    """Базовая ошибка сервиса пользователей."""
+    """Base error of the user service."""
 
 
 class EmailAlreadyUsed(UserServiceError):
@@ -61,7 +61,7 @@ class TooManyAttempts(UserServiceError):
     pass
 
 
-# --- Поиск ---
+# --- Lookup ---
 
 
 def normalize_email(email: str) -> str:
@@ -87,15 +87,15 @@ async def count_users(session: AsyncSession) -> int:
     return int(result.scalar_one())
 
 
-# --- Пароли ---
+# --- Passwords ---
 
 
 def validate_password(password: str, *, email: str | None = None) -> None:
-    """Минимальные требования к паролю.
+    """Minimum password requirements.
 
-    Намеренно без обязательных спецсимволов и цифр: такие правила гонят
-    людей к «Password1!», а длину они не увеличивают. Длина здесь и есть
-    основное требование.
+    Deliberately no mandatory special characters or digits: such rules push people
+    towards "Password1!" without making passwords longer. Length is the main requirement
+    here.
     """
     if len(password) < MIN_PASSWORD_LENGTH:
         raise WeakPassword(f"Пароль короче {MIN_PASSWORD_LENGTH} символов.")
@@ -105,7 +105,7 @@ def validate_password(password: str, *, email: str | None = None) -> None:
         raise WeakPassword("Пароль не должен совпадать с адресом почты.")
 
 
-# --- Создание и вход ---
+# --- Creation and login ---
 
 
 async def create_user(
@@ -139,10 +139,10 @@ async def authenticate(
     ip: str | None = None,
     user_agent: str | None = None,
 ) -> User:
-    """Проверить логин и пароль. Второй фактор проверяется отдельно.
+    """Check the login and password. The second factor is checked separately.
 
-    Любая неудача даёт одну и ту же ошибку наружу: по разнице сообщений
-    иначе можно перебрать, какие адреса зарегистрированы.
+    Every failure produces the same error to the outside: otherwise differences in
+    messages would let someone enumerate which addresses are registered.
     """
     email = normalize_email(email)
     await check_login_throttle(session, email)
@@ -188,13 +188,11 @@ async def authenticate(
 
 
 async def recent_failed_attempts(session: AsyncSession, email: str) -> int:
-    """Неудачные попытки в окне и после последнего удачного входа.
+    """Failed attempts within the window and after the last successful login.
 
-    Отсечка по идентификатору события, а не по времени: в PostgreSQL
-    now() возвращает время начала транзакции, поэтому события одного
-    запроса получают одинаковую метку и сравнение по времени становится
-    неоднозначным. Идентификаторы монотонны и такой двусмысленности не
-    имеют.
+    The cutoff is by event id, not time: in PostgreSQL now() returns the transaction
+    start time, so events from one request get the same timestamp and comparing by time
+    becomes ambiguous. Ids are monotonic and have no such ambiguity.
     """
     email = normalize_email(email)
 
@@ -217,12 +215,11 @@ async def recent_failed_attempts(session: AsyncSession, email: str) -> int:
 
 
 async def check_login_throttle(session: AsyncSession, email: str) -> None:
-    """Не пускать к проверке пароля после серии неудач.
+    """Block the password check after a series of failures.
 
-    Считаем по адресу, а не по IP: перебор с ротацией исходящих узлов
-    иначе проходит мимо ограничения. Отсчёт ведётся от последнего
-    удачного входа — иначе давние опечатки копились бы и однажды
-    заблокировали хозяина аккаунта на ровном месте.
+    Counted per address, not per IP: otherwise brute-forcing with rotating egress nodes
+    slips past the limit. The count starts from the last successful login - otherwise
+    old typos would accumulate and one day lock out the account owner out of nowhere.
     """
     if await recent_failed_attempts(session, email) >= MAX_FAILED_ATTEMPTS:
         raise TooManyAttempts(
@@ -237,7 +234,7 @@ async def complete_login(
     ip: str | None = None,
     user_agent: str | None = None,
 ) -> None:
-    """Отметить успешный вход — после всех факторов, а не после пароля."""
+    """Mark a successful login - after all factors, not after the password."""
     user.last_login_at = datetime.now(timezone.utc)
     await audit_service.log_login(
         session,
@@ -250,11 +247,11 @@ async def complete_login(
 
 
 async def set_timezone(session: AsyncSession, user: User, name: str) -> None:
-    """Сменить часовой пояс отображения.
+    """Change the display time zone.
 
-    Имя проверяется по базе зон, а не по списку в форме: список в
-    интерфейсе может отстать, а неизвестное имя молча вернуло бы
-    пользователя в UTC — и он бы этого не заметил.
+    The name is checked against the zone database, not against the list in the form: the
+    UI list may lag behind, and an unknown name would silently put the user back on UTC -
+    without them noticing.
     """
     name = (name or "").strip()
     if name not in available_timezones():
@@ -285,15 +282,15 @@ async def change_password(
     )
 
 
-# --- Двухфакторная аутентификация ---
+# --- Two-factor authentication ---
 
 
 def begin_totp_setup(user: User) -> tuple[str, str]:
-    """Сгенерировать секрет и ссылку для QR.
+    """Generate a secret and a link for the QR code.
 
-    Секрет пока никуда не сохраняется: 2FA включится только после того,
-    как пользователь подтвердит его кодом из приложения. Иначе можно
-    запереть себя, отсканировав QR с ошибкой.
+    The secret isn't stored anywhere yet: 2FA is enabled only after the user confirms it
+    with a code from the app. Otherwise one could lock themselves out by scanning the QR
+    code wrong.
     """
     if user.totp_enabled:
         raise TotpAlreadyEnabled("Двухфакторная аутентификация уже включена.")
@@ -310,9 +307,9 @@ async def confirm_totp(
     secret: str,
     code: str,
 ) -> list[str]:
-    """Включить 2FA и выдать коды восстановления.
+    """Enable 2FA and issue recovery codes.
 
-    Коды возвращаются один раз в открытом виде — в базе только хеши.
+    The codes are returned once in plain text - only hashes are stored in the database.
     """
     if user.totp_enabled:
         raise TotpAlreadyEnabled("Двухфакторная аутентификация уже включена.")
@@ -334,7 +331,7 @@ async def confirm_totp(
 
 
 async def disable_totp(session: AsyncSession, user: User, *, password: str) -> None:
-    """Выключить 2FA. Требует пароль — иначе угнанная сессия снимет защиту."""
+    """Disable 2FA. Needs the password, or a hijacked session could remove protection."""
     if not security.verify_password(password, user.password_hash):
         raise InvalidCredentials("Пароль указан неверно.")
 
@@ -351,9 +348,9 @@ async def disable_totp(session: AsyncSession, user: User, *, password: str) -> N
 
 
 async def verify_second_factor(session: AsyncSession, user: User, code: str) -> bool:
-    """Проверить код из приложения или код восстановления.
+    """Verify a code from the app or a recovery code.
 
-    Код восстановления одноразовый: при удачной проверке гасится.
+    A recovery code is single-use: it is invalidated on successful verification.
     """
     if not user.totp_enabled or not user.totp_secret_enc:
         return True
@@ -420,11 +417,11 @@ async def unused_recovery_codes_count(session: AsyncSession, user: User) -> int:
     return int(result.scalar_one())
 
 
-# --- Привязка Telegram ---
+# --- Telegram linking ---
 
 
 async def issue_telegram_link_code(session: AsyncSession, user: User) -> str:
-    """Выдать одноразовый код, который пользователь отправит боту."""
+    """Issue a one-time code that the user will send to the bot."""
     code = security.generate_numeric_code(8)
     user.telegram_link_code = code
     user.telegram_link_expires_at = datetime.now(timezone.utc) + TELEGRAM_CODE_TTL
@@ -468,15 +465,15 @@ async def link_telegram(
     return user
 
 
-# --- Первый запуск ---
+# --- First start ---
 
 
 async def ensure_owner(session: AsyncSession, *, email: str, password: str) -> User | None:
-    """Создать владельца, если в базе ещё нет ни одного пользователя.
+    """Create the owner if the database has no users yet.
 
-    Идемпотентно: на непустой базе не делает ничего и пароль из
-    окружения не переприменяет — иначе смена SEED_OWNER_PASSWORD
-    молча перетирала бы пароль, заданный владельцем в интерфейсе.
+    Idempotent: on a non-empty database it does nothing and doesn't reapply the password
+    from the environment - otherwise changing SEED_OWNER_PASSWORD would silently
+    overwrite the password the owner set in the UI.
     """
     if await count_users(session) > 0:
         return None
@@ -494,7 +491,7 @@ async def ensure_owner(session: AsyncSession, *, email: str, password: str) -> U
 
 
 def _as_utc(value: datetime) -> datetime:
-    """SQLite отдаёт наивные datetime — приводим к UTC для сравнения."""
+    """SQLite returns naive datetimes - convert to UTC for comparison."""
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value

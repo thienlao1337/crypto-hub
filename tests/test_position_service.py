@@ -23,7 +23,7 @@ def make_trade(
     fee: str | None = None,
     fee_asset_id: int | None = None,
 ) -> Trade:
-    """Сделка в памяти: walk_trades работает без базы."""
+    """An in-memory trade: walk_trades works without a database."""
     price_dec = Decimal(price)
     amount_dec = Decimal(amount)
     return Trade(
@@ -46,7 +46,7 @@ def walk(trades: list[Trade]) -> position_service.WalkResult:
     )
 
 
-# --- Средняя цена входа ---
+# --- Average entry price ---
 
 
 def test_two_buys_average_out():
@@ -59,7 +59,7 @@ def test_two_buys_average_out():
 
 
 def test_partial_sell_keeps_entry_price():
-    """Продажа части позиции не меняет среднюю цену оставшейся."""
+    """Selling part of a position doesn't change the average price of the rest."""
     result = walk(
         [
             make_trade("buy", "10000", "1"),
@@ -70,7 +70,7 @@ def test_partial_sell_keeps_entry_price():
 
     assert result.amount == Decimal("1.5")
     assert result.entry_price == Decimal(15000)
-    # Продано по 20000 то, что вошло по 15000: 0.5 × 5000.
+    # Sold at 20000 what was bought at 15000: 0.5 × 5000.
     assert result.realized[2] == Decimal(2500)
 
 
@@ -83,7 +83,7 @@ def test_realized_pnl_only_on_sells():
 
 
 def test_closed_position_reopens_from_scratch():
-    """Полное закрытие обнуляет базис: следующая покупка начинает заново."""
+    """A full close resets the basis: the next purchase starts over."""
     result = walk(
         [
             make_trade("buy", "100", "1"),
@@ -97,11 +97,11 @@ def test_closed_position_reopens_from_scratch():
     assert result.opened_at == START + timedelta(minutes=2)
 
 
-# --- Неполная история ---
+# --- Incomplete history ---
 
 
 def test_sell_without_buy_marks_history_incomplete():
-    """Биржа отдаёт ограниченный период — покупка могла остаться за ним."""
+    """The exchange returns a limited period - the purchase may be outside it."""
     result = walk([make_trade("sell", "100", "1")])
 
     assert result.complete is False
@@ -114,11 +114,11 @@ def test_oversized_sell_closes_position_and_flags_it():
 
     assert result.complete is False
     assert result.amount == Decimal(0)
-    # Учтена только известная часть: 1 монета, а не три.
+    # Only the known part is counted: 1 coin, not three.
     assert result.realized[1] == Decimal(50)
 
 
-# --- Комиссии ---
+# --- Fees ---
 
 
 def test_quote_fee_raises_cost_basis():
@@ -135,14 +135,14 @@ def test_base_fee_reduces_received_amount():
 
 
 def test_third_asset_fee_is_ignored():
-    """Комиссию в BNB не по чему пересчитать — молча подставлять курс нельзя."""
+    """A fee in BNB has nothing to convert by - silently plugging in a rate isn't allowed."""
     result = walk([make_trade("buy", "10000", "1", fee="0.5", fee_asset_id=99)])
 
     assert result.amount == Decimal(1)
     assert result.entry_price == Decimal(10000)
 
 
-# --- Пересборка позиций в базе ---
+# --- Rebuilding positions in the database ---
 
 
 @pytest_asyncio.fixture
@@ -238,7 +238,7 @@ async def test_rebuild_writes_realized_pnl_into_trades(session, setup):
 
 
 async def test_full_close_marks_position_closed(session, setup):
-    """Закрытая позиция остаётся строкой с is_open = False, а не пропадает."""
+    """A closed position stays as a row with is_open = False instead of disappearing."""
     account = setup["account"]
     await load_trades(
         session,
@@ -271,7 +271,7 @@ async def test_full_close_marks_position_closed(session, setup):
 
 
 async def test_never_open_position_creates_no_row(session, setup):
-    """Пара, вся история которой сводится в ноль, строку не заводит."""
+    """A pair whose whole history nets to zero doesn't get a row."""
     account = setup["account"]
     await load_trades(
         session,
@@ -292,7 +292,7 @@ async def test_never_open_position_creates_no_row(session, setup):
 
 
 async def test_rebuild_is_idempotent(session, setup):
-    """Повторный прогон не должен ни удваивать позицию, ни плодить строки."""
+    """A repeated run must neither double the position nor multiply rows."""
     account = setup["account"]
     await load_trades(
         session,
@@ -311,7 +311,7 @@ async def test_rebuild_is_idempotent(session, setup):
 
 
 async def test_balance_larger_than_history_flags_position(session, setup):
-    """На бирже монет больше, чем объясняют сделки — базис неполный."""
+    """The exchange holds more coins than the trades explain - the basis is incomplete."""
     account = setup["account"]
     await load_trades(
         session,
@@ -347,7 +347,7 @@ async def test_balance_matching_history_stays_complete(session, setup):
     assert position.cost_basis_complete is True
 
 
-# --- Переоценка и вывод ---
+# --- Revaluation and output ---
 
 
 async def test_mark_positions_computes_unrealized_pnl(session, setup):
@@ -393,7 +393,7 @@ async def test_list_positions_returns_percent_and_totals(session, setup):
 
 
 async def test_total_unrealized_without_prices_is_none(session, setup):
-    """Пустой список и «нечего считать» — разные состояния, не ноль."""
+    """An empty list and "nothing to compute" are different states, not zero."""
     assert position_service.total_unrealized([]) is None
 
 
@@ -417,7 +417,7 @@ async def test_closed_position_is_not_listed(session, setup):
 
 
 async def test_balance_row_untouched_by_rebuild(session, setup):
-    """Пересборка позиций не должна трогать срез балансов."""
+    """Rebuilding positions must not touch the balance snapshot."""
     account = setup["account"]
     balances = fakes.FakeAdapter(balances=[fakes.balance("BTC", "0.5")])
     await portfolio_service.sync_balances(session, account, balances)

@@ -1,4 +1,4 @@
-"""Вход, второй фактор, регистрация по приглашению."""
+"""Login, second factor, invite-based registration."""
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -47,7 +47,7 @@ async def login_submit(
             user_agent=auth.user_agent(request),
         )
     except user_service.UserServiceError as exc:
-        # Записи о неудачной попытке сделал сервис — фиксируем их.
+        # The service created records of the failed attempt - commit them.
         await session.commit()
         return templates.TemplateResponse(
             request,
@@ -138,7 +138,7 @@ async def second_factor_submit(
 
 @router.post("/logout")
 async def logout(request: Request, csrf_token: str = Form("")):
-    # Токен проверяем, чтобы чужая страница не выкидывала пользователя.
+    # Check the token so a third-party page can't log the user out.
     auth.verify_csrf(request, csrf_token)
     auth.clear_session(request)
     return RedirectResponse("/login", status_code=303)

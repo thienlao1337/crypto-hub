@@ -1,4 +1,4 @@
-# --- Ядро ---
+# --- Core ---
 aiogram==3.31.0
 SQLAlchemy==2.0.52
 asyncpg==0.31.0
@@ -12,29 +12,30 @@ pydantic==2.13.5
 pydantic-settings==2.15.0
 python-dotenv==1.2.3
 
-# --- Безопасность ---
-# bcrypt используется напрямую, без passlib: passlib не выпускался с 2020
-# года и ломается на bcrypt >= 4.1, то есть тянул бы за собой устаревшую
-# версию хеширования паролей. Для продукта, который хранит API-ключи бирж,
-# это неоправданно — см. README, раздел «Отступления от типового стека».
+# --- Security ---
+# bcrypt is used directly, without passlib: passlib hasn't had a release since
+# 2020 and breaks on bcrypt >= 4.1, so it would drag in an outdated password
+# hashing version. For a product that stores exchange API keys that's
+# unjustified - see the README, section "Deviations from the typical stack".
 bcrypt==5.0.0
 cryptography==50.0.1
 pyotp==2.10.0
 qrcode[pil]==8.2
 
-# --- Биржи и рыночные данные ---
-# ccxt даёт единый интерфейс к Bybit и Binance (REST + WebSocket) и режим
-# sandbox для testnet. Версия пинуется жёстко: релизы выходят почти ежедневно.
+# --- Exchanges and market data ---
+# ccxt provides a unified interface to Bybit and Binance (REST + WebSocket) and
+# a sandbox mode for testnet. The version is pinned exactly: releases come out
+# almost daily.
 ccxt==4.5.77
 httpx==0.28.1
 
-# --- Веб-пуш ---
-# Шифрование полезной нагрузки по RFC 8291 и подпись VAPID руками писать
-# незачем: pywebpush — эталонная реализация от авторов спецификации.
-# Внутри он синхронный (requests), поэтому вызывается в отдельном потоке.
+# --- Web push ---
+# There's no reason to hand-write RFC 8291 payload encryption and VAPID
+# signing: pywebpush is the reference implementation by the spec authors. It's
+# synchronous inside (requests), so it is called in a separate thread.
 pywebpush==2.5.0
 
-# --- Индикаторы и фоновые задачи ---
+# --- Indicators and background jobs ---
 pandas==3.0.5
 numpy==2.5.2
 APScheduler==3.11.3

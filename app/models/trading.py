@@ -18,20 +18,20 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base
 from app.models.types import Amount, BigPk, JsonB, Pct, Price, Usd
 
-# paper — сделки только в базе, биржа не дёргается вообще.
-# testnet — реальные вызовы к тестовой сети биржи.
-# live — реальные деньги; включается отдельным подтверждением.
+# paper - trades only in the database, the exchange isn't touched at all.
+# testnet - real calls to the exchange's test network.
+# live - real money; enabled by a separate confirmation.
 MODE_PAPER = "paper"
 MODE_TESTNET = "testnet"
 MODE_LIVE = "live"
 
 
 class Strategy(Base):
-    """Стратегия автотрейдинга: сигнал → размер позиции → SL/TP.
+    """Auto-trading strategy: signal -> position size -> SL/TP.
 
-    По умолчанию неактивна и в режиме paper. Перевод в live требует
-    записанного времени явного подтверждения (live_confirmed_at) — одного
-    чекбокса для реальных денег мало.
+    Inactive and in paper mode by default. Switching to live requires a recorded time of
+    explicit confirmation (live_confirmed_at) - a single checkbox isn't enough for real
+    money.
     """
 
     __tablename__ = "strategies"
@@ -48,25 +48,25 @@ class Strategy(Base):
 
     mode: Mapped[str] = mapped_column(String(16), default=MODE_PAPER, nullable=False)
 
-    # --- Размер позиции и выходы ---
+    # --- Position size and exits ---
     position_size_pct: Mapped[Decimal] = mapped_column(Pct, nullable=False)
     stop_loss_pct: Mapped[Decimal | None] = mapped_column(Pct, nullable=True)
     take_profit_pct: Mapped[Decimal | None] = mapped_column(Pct, nullable=True)
 
-    # --- Лимиты риска ---
-    # При достижении дневного лимита убытка стратегия останавливает сама
-    # себя и пишет причину в журнал.
+    # --- Risk limits ---
+    # When the daily loss limit is reached, the strategy stops itself and logs
+    # the reason.
     max_pct_per_trade: Mapped[Decimal] = mapped_column(Pct, nullable=False)
     daily_loss_limit_pct: Mapped[Decimal] = mapped_column(Pct, nullable=False)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    # Отметка «сигналы до этого номера уже рассмотрены». Без неё каждый
-    # проход фонового процесса заново разбирает те же сигналы и пишет в
-    # журнал те же отказы — за полчаса набегает три десятка одинаковых
-    # строк, и единственная важная теряется среди них. Это водяной знак,
-    # а не ссылка, поэтому без внешнего ключа: удаление старого сигнала
-    # не должно заставлять стратегию всё переосмысливать.
+    # Marker for "signals up to this id have already been reviewed". Without it
+    # every background pass re-processes the same signals and logs the same
+    # rejections - thirty identical lines pile up in half an hour, and the one
+    # that matters gets lost among them. This is a watermark, not a reference,
+    # hence no foreign key: deleting an old signal must not make the strategy
+    # reconsider everything.
     last_signal_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     live_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -85,10 +85,10 @@ class Strategy(Base):
 
 
 class BotOrder(Base):
-    """Ордер, выставленный ботом. mode дублируется здесь намеренно:
+    """An order placed by the bot. mode is duplicated here on purpose:
 
-    режим стратегии может измениться позже, а по журналу должно быть
-    видно, чем именно была сделка в момент исполнения.
+    the strategy mode may change later, and the log must show what exactly the trade was
+    at the moment of execution.
     """
 
     __tablename__ = "bot_orders"
@@ -114,9 +114,9 @@ class BotOrder(Base):
 
     stop_loss: Mapped[Decimal | None] = mapped_column(Price, nullable=True)
     take_profit: Mapped[Decimal | None] = mapped_column(Price, nullable=True)
-    # Цена выхода и результат заполняются при закрытии позиции. Строка
-    # одна на позицию целиком: вход и выход двумя записями пришлось бы
-    # сшивать обратно при каждом показе.
+    # Exit price and result are filled in when the position closes. One row
+    # covers the whole position: entry and exit as two rows would have to be
+    # stitched back together every time they're shown.
     close_price: Mapped[Decimal | None] = mapped_column(Price, nullable=True)
     realized_pnl: Mapped[Decimal | None] = mapped_column(Usd, nullable=True)
 
@@ -128,10 +128,10 @@ class BotOrder(Base):
 
 
 class BotJournalEntry(Base):
-    """Журнал действий бота — по ТЗ полная прозрачность.
+    """Bot action log - full transparency, per the spec.
 
-    Пишем всё: рассмотрел сигнал и отказался, выставил ордер, поймал
-    ошибку биржи, остановился по лимиту убытка.
+    We record everything: reviewed a signal and declined, placed an order, hit an
+    exchange error, stopped at the loss limit.
     """
 
     __tablename__ = "bot_journal"
@@ -148,9 +148,9 @@ class BotJournalEntry(Base):
 
 
 class RiskState(Base):
-    """Дневное состояние риска по стратегии.
+    """Daily risk state of a strategy.
 
-    Одна строка на торговый день: накопленный результат и флаг остановки.
+    One row per trading day: accumulated result and a stop flag.
     """
 
     __tablename__ = "risk_state"

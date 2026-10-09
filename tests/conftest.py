@@ -14,12 +14,11 @@ TEST_DB_SUFFIX = "_test"
 
 
 def _test_database_url() -> str:
-    """Отдельная база под тесты — рядом с рабочей, но не она.
+    """A separate database for tests - next to the working one, but not it.
 
-    Тесты гоняются на PostgreSQL, а не на SQLite: на SQLite тип Numeric
-    хранится как float, и 1234.56 читается обратно как
-    1234.559999999999945430. Для продукта, который считает деньги, такой
-    стенд бесполезен — он и прячет настоящие ошибки, и выдумывает свои.
+    Tests run on PostgreSQL, not SQLite: SQLite stores the Numeric type as float, and
+    1234.56 is read back as 1234.559999999999945430. For a product that handles money
+    such a test bed is useless - it both hides real bugs and invents its own.
     """
     settings = get_settings()
     return (
@@ -53,7 +52,7 @@ async def _ensure_database_exists() -> None:
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def engine():
-    """Схема разворачивается один раз на прогон."""
+    """The schema is created once per run."""
     await _ensure_database_exists()
 
     engine = create_async_engine(_test_database_url(), poolclass=NullPool)
@@ -67,11 +66,11 @@ async def engine():
 
 @pytest_asyncio.fixture
 async def session(engine) -> AsyncSession:
-    """Сессия внутри внешней транзакции, которая откатывается после теста.
+    """A session inside an outer transaction that is rolled back after the test.
 
-    Пересоздавать тридцать таблиц на каждый тест дорого, поэтому тест
-    работает в транзакции, а его commit'ы становятся точками сохранения
-    внутри неё (join_transaction_mode="create_savepoint").
+    Recreating thirty tables for every test is expensive, so a test runs inside a
+    transaction and its commits become savepoints within it
+    (join_transaction_mode="create_savepoint").
     """
     connection = await engine.connect()
     transaction = await connection.begin()
@@ -91,10 +90,10 @@ async def session(engine) -> AsyncSession:
 
 @pytest.fixture(autouse=True)
 def encryption_key(monkeypatch):
-    """Свой ключ шифрования на каждый тест.
+    """A separate encryption key for every test.
 
-    Тесты не должны зависеть от .env разработчика и не должны шифровать
-    тестовые данные боевым ключом.
+    Tests must not depend on the developer's .env and must not encrypt test data with
+    the production key.
     """
     key = base64.urlsafe_b64encode(os.urandom(32)).decode()
     monkeypatch.setattr(security.get_settings(), "encryption_key", key, raising=False)
@@ -105,7 +104,7 @@ def encryption_key(monkeypatch):
 
 @pytest_asyncio.fixture
 async def owner(session):
-    """Владелец системы — он выдаёт приглашения."""
+    """The system owner - the one who issues invites."""
     from app.services import user_service
 
     user = await user_service.create_user(

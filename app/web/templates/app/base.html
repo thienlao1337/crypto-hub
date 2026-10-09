@@ -39,8 +39,8 @@
   {% block app_content %}{% endblock %}
 </main>
 
-{# Скрипт значка стоит прямо здесь, а не в блоке scripts: этот блок
-   переопределяют страницы с графиками, и счётчик пропал бы на них. #}
+{# The badge script sits right here, not in the scripts block: that block
+   is overridden by chart pages, and the counter would disappear on them. #}
 <script>
   (function () {
     var badge = document.getElementById('unread-badge');

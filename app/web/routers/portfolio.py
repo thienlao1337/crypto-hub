@@ -1,4 +1,4 @@
-"""Портфель: сводка, распределение, история стоимости, сделки."""
+"""Portfolio: summary, allocation, value history, trades."""
 
 import json
 import logging
@@ -33,9 +33,9 @@ async def portfolio_page(
     snapshots = await portfolio_service.history(session, user, period)
     positions = await position_service.list_positions(session, user)
 
-    # График получает данные отдельным блоком JSON, а не через шаблонные
-    # подстановки внутрь скрипта: так значения не приходится экранировать
-    # вручную.
+    # The chart gets its data as a separate JSON block rather than via template
+    # substitutions inside the script: that way values don't have to be escaped
+    # by hand.
     chart_data = [
         {
             "time": snapshot.captured_at.isoformat(),
@@ -87,10 +87,10 @@ async def sync_now(
     user: User = Depends(auth.require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Синхронизировать балансы по кнопке.
+    """Sync balances on button press.
 
-    Регулярную синхронизацию делает фоновый процесс; здесь — чтобы не
-    ждать следующего цикла после того, как ключ только что добавлен.
+    Regular syncing is done by the background process; this is so you don't have to wait
+    for the next cycle right after adding a key.
     """
     auth.verify_csrf(request, csrf_token)
 
@@ -103,7 +103,7 @@ async def sync_now(
             await position_service.rebuild_positions(session, account)
             await keys_service.mark_synced(session, account)
         except Exception as exc:
-            logger.warning("Синхронизация подключения %s не удалась: %s", account.id, exc)
+            logger.warning("Sync of connection %s failed: %s", account.id, exc)
             await keys_service.mark_sync_error(session, account, str(exc))
         finally:
             await adapter.close()
@@ -114,11 +114,11 @@ async def sync_now(
 
 
 def _donut_segments(summary: portfolio_service.PortfolioSummary) -> list[dict]:
-    """Сегменты круговой диаграммы с накопленными границами.
+    """Pie chart segments with cumulative boundaries.
 
-    Границы считаем здесь, а не в шаблоне: conic-gradient требует
-    нарастающих процентов, и арифметика в Jinja читалась бы плохо.
-    Мелкие доли сводим в «прочее», иначе легенда превращается в простыню.
+    Boundaries are computed here, not in the template: conic-gradient needs cumulative
+    percentages, and the arithmetic would read badly in Jinja. Small shares are merged
+    into "other", otherwise the legend turns into a wall of text.
     """
     if summary.total_usd <= 0:
         return []

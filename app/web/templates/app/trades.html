@@ -36,8 +36,8 @@
             <td>{{ exchange_code }}</td>
             <td><strong>{{ symbol }}</strong></td>
             <td>
-              {# Сторона сделки — это направление, тот же смысл, что у роста
-                 и падения цены, поэтому цвета здесь уместны. #}
+              {# The trade side is a direction, the same meaning as a price rise
+                 and fall, so colors are appropriate here. #}
               <span class="{{ 'up' if trade.side == 'buy' else 'down' }}">
                 {{ 'покупка' if trade.side == 'buy' else 'продажа' }}
               </span>

@@ -1,9 +1,9 @@
 """p2p ads and price rules
 
-Объявления на P2P, правила их ценообразования, журнал изменений цены и
-заказы. Плюс отдельное право на P2P у ключа биржи: у Bybit и Binance эти
-эндпоинты закрыты, пока аккаунт не получил статус рекламодателя или
-мерчанта, и право на спотовую торговлю доступа к ним не даёт.
+P2P ads, their pricing rules, the price change log and orders. Plus a separate P2P
+permission on the exchange key: on Bybit and Binance these endpoints stay closed until
+the account gets advertiser or merchant status, and spot trading permission doesn't
+grant access to them.
 
 Revision ID: 0011
 Revises: 0010
@@ -119,15 +119,15 @@ def upgrade() -> None:
         unique=False,
     )
 
-    # server_default обязателен: в таблице уже есть ключи, и NOT NULL без
-    # значения по умолчанию свалил бы миграцию на боевой базе. Права P2P
-    # у существующих ключей нет — значит false.
+    # server_default is required: the table already has keys, and NOT NULL
+    # without a default would fail the migration on the production database.
+    # Existing keys have no P2P permission - hence false.
     for column in ('requested_p2p', 'allow_p2p'):
         op.add_column(
             'exchange_accounts',
             sa.Column(column, sa.Boolean(), nullable=False, server_default=sa.false()),
         )
-        # Дальше значение проставляет приложение.
+        # From now on the application sets the value.
         op.alter_column('exchange_accounts', column, server_default=None)
 
 

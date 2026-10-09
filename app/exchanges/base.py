@@ -1,8 +1,7 @@
-"""Общий интерфейс адаптера биржи.
+"""Common exchange adapter interface.
 
-Сервисы работают только с этими типами и не знают, что под капотом
-ccxt. Это же делает их тестируемыми: в тестах подставляется поддельный
-адаптер, а не поднимается сеть.
+Services work only with these types and don't know ccxt is under the hood. That also
+makes them testable: tests plug in a fake adapter instead of hitting the network.
 """
 
 from dataclasses import dataclass, field
@@ -15,19 +14,19 @@ SIDE_SELL = "sell"
 
 
 class ExchangeError(Exception):
-    """Базовая ошибка работы с биржей."""
+    """Base error for exchange operations."""
 
 
 class ExchangeAuthError(ExchangeError):
-    """Ключ недействителен, отозван или не имеет нужных прав."""
+    """The key is invalid, revoked or lacks the required permissions."""
 
 
 class ExchangeRateLimited(ExchangeError):
-    """Биржа попросила сбавить темп."""
+    """The exchange asked us to slow down."""
 
 
 class ExchangeUnavailable(ExchangeError):
-    """Сеть или биржа временно недоступны — имеет смысл повторить."""
+    """Network or exchange temporarily unavailable - worth retrying."""
 
 
 @dataclass(frozen=True)
@@ -40,8 +39,8 @@ class BalanceEntry:
 
 @dataclass(frozen=True)
 class MarketInfo:
-    symbol: str  # унифицированный вид: BTC/USDT
-    raw_symbol: str  # как у биржи: BTCUSDT
+    symbol: str  # unified form: BTC/USDT
+    raw_symbol: str  # as the exchange writes it: BTCUSDT
     base: str
     quote: str
     market_type: str = "spot"
@@ -91,7 +90,7 @@ class TradeInfo:
 
 @dataclass(frozen=True)
 class OrderResult:
-    """Ответ биржи на выставленный ордер."""
+    """Exchange response to a placed order."""
 
     external_id: str
     symbol: str
@@ -106,11 +105,11 @@ class OrderResult:
 
 @dataclass(frozen=True)
 class KeyCheck:
-    """Результат проверки ключа у самой биржи.
+    """Result of checking the key with the exchange itself.
 
-    can_trade заполняется только когда биржа явно подтвердила право на
-    торговлю. Если выяснить не удалось — остаётся False: право на
-    реальные сделки не выдаётся по догадке.
+    can_trade is set only when the exchange explicitly confirmed trading permission. If
+    it couldn't be determined it stays False: live trading permission is never granted
+    on a guess.
     """
 
     is_valid: bool
@@ -120,7 +119,7 @@ class KeyCheck:
 
 
 class ExchangeAdapter(Protocol):
-    """То, что сервисы вправе спросить у биржи."""
+    """What services are allowed to ask the exchange."""
 
     async def check_key(self) -> KeyCheck: ...
 
@@ -158,10 +157,10 @@ class ExchangeAdapter(Protocol):
 
 
 def to_decimal(value) -> Decimal | None:
-    """Перевести число из ccxt в Decimal без потери на float.
+    """Convert a number from ccxt to Decimal without float loss.
 
-    ccxt отдаёт float; Decimal(0.1) даёт 0.1000000000000000055…, поэтому
-    идём через строку.
+    ccxt returns float; Decimal(0.1) gives 0.1000000000000000055..., so we go through a
+    string.
     """
     if value is None:
         return None

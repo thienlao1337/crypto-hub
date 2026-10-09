@@ -1,4 +1,4 @@
-"""Портфель: балансы, оценка, история стоимости, сделки."""
+"""Portfolio: balances, valuation, value history, trades."""
 
 import logging
 from dataclasses import dataclass, field
@@ -34,7 +34,7 @@ PERIODS = {
 
 @dataclass
 class Holding:
-    """Позиция по одной монете, собранная со всех подключённых бирж."""
+    """Position in one coin, aggregated across all connected exchanges."""
 
     asset_symbol: str
     total: Decimal
@@ -49,17 +49,17 @@ class PortfolioSummary:
     total_usd: Decimal
     holdings: list[Holding]
     by_exchange: dict[str, Decimal]
-    # Без снимка за прошлый период изменение честно остаётся пустым:
-    # выдумывать его по текущим ценам нельзя.
+    # Without a snapshot for the previous period the change honestly stays
+    # empty: it must not be made up from current prices.
     change_24h_usd: Decimal | None = None
     change_24h_pct: Decimal | None = None
     change_7d_pct: Decimal | None = None
-    # Монеты, для которых не нашлось пары к стейблкоину.
+    # Coins for which no pair against a stablecoin was found.
     unpriced: list[str] = field(default_factory=list)
     has_accounts: bool = True
 
 
-# --- Синхронизация ---
+# --- Sync ---
 
 
 async def sync_balances(
@@ -67,10 +67,10 @@ async def sync_balances(
     account: ExchangeAccount,
     adapter: ExchangeAdapter,
 ) -> int:
-    """Обновить срез балансов одного подключения.
+    """Refresh the balance snapshot of one connection.
 
-    Монеты, пропавшие из ответа биржи, удаляются: иначе проданный актив
-    навсегда останется висеть в портфеле.
+    Coins that disappeared from the exchange response are deleted: otherwise a sold
+    asset would hang in the portfolio forever.
     """
     entries = await adapter.fetch_balances()
     seen_asset_ids: set[int] = set()
@@ -108,10 +108,9 @@ async def sync_trades(
     symbols: list[str],
     since: datetime | None = None,
 ) -> int:
-    """Догрузить историю сделок.
+    """Backfill the trade history.
 
-    Повторный запуск безопасен: сделка опознаётся по паре
-    (подключение, идентификатор у биржи).
+    Re-running is safe: a trade is identified by the pair (connection, exchange id).
     """
     saved = 0
 
@@ -124,7 +123,7 @@ async def sync_trades(
         try:
             trades = await adapter.fetch_my_trades(symbol, since=last_seen)
         except Exception as exc:
-            logger.warning("Не удалось получить сделки %s: %s", symbol, exc)
+            logger.warning("Could not fetch trades for %s: %s", symbol, exc)
             continue
 
         for info in trades:
@@ -157,7 +156,7 @@ async def sync_trades(
     return saved
 
 
-# --- Сводка ---
+# --- Summary ---
 
 
 async def build_summary(session: AsyncSession, user: User) -> PortfolioSummary:
@@ -236,10 +235,10 @@ async def build_summary(session: AsyncSession, user: User) -> PortfolioSummary:
 
 
 async def take_snapshot(session: AsyncSession, user: User) -> PortfolioSnapshot | None:
-    """Записать точку графика стоимости.
+    """Record a point on the value chart.
 
-    Разбивка сохраняется вместе со значением: график за прошлый месяц не
-    должен пересчитываться по сегодняшним ценам.
+    The breakdown is stored with the value: last month's chart must not be recomputed at
+    today's prices.
     """
     summary = await build_summary(session, user)
     if not summary.has_accounts:
@@ -278,7 +277,7 @@ async def history(
 async def recent_trades(
     session: AsyncSession, user: User, *, limit: int = 100
 ) -> list[tuple[Trade, str, str]]:
-    """Последние сделки пользователя вместе с парой и биржей."""
+    """The user's latest trades together with pair and exchange."""
     accounts = await _user_accounts(session, user)
     if not accounts:
         return []
@@ -295,15 +294,15 @@ async def recent_trades(
 
 
 def money_str(value: Decimal) -> str:
-    """Компактная запись суммы в JSON.
+    """Compact representation of an amount in JSON.
 
-    Numeric(20, 8) возвращает 80000.00000000000000000000, а normalize()
-    сам по себе даёт 8E+4 — оба варианта в разбивке снимка неуместны.
+    Numeric(20, 8) returns 80000.00000000000000000000, and normalize() on its own gives
+    8E+4 - neither belongs in a snapshot breakdown.
     """
     return format(value.normalize(), "f")
 
 
-# --- Вспомогательное ---
+# --- Helpers ---
 
 
 async def _user_accounts(session: AsyncSession, user: User) -> list[ExchangeAccount]:
@@ -351,7 +350,7 @@ async def _last_trade_time(
 
 
 async def _asset_change_map(session: AsyncSession) -> dict[str, Decimal]:
-    """Изменение за сутки по каждой монете — из среза котировок."""
+    """24-hour change per coin - from the quote snapshot."""
     base = Asset.__table__.alias("base_asset")
     quote = Asset.__table__.alias("quote_asset")
 
@@ -377,7 +376,7 @@ async def _asset_change_map(session: AsyncSession) -> dict[str, Decimal]:
 async def _fill_changes(
     session: AsyncSession, user: User, summary: PortfolioSummary
 ) -> None:
-    """Посчитать изменение стоимости по сохранённым снимкам."""
+    """Compute the value change from stored snapshots."""
     day_ago = await _snapshot_before(session, user, timedelta(days=1))
     if day_ago is not None and day_ago.total_usd > 0:
         summary.change_24h_usd = summary.total_usd - day_ago.total_usd
@@ -393,7 +392,7 @@ async def _fill_changes(
 async def _snapshot_before(
     session: AsyncSession, user: User, delta: timedelta
 ) -> PortfolioSnapshot | None:
-    """Ближайший снимок не позже заданного момента."""
+    """The closest snapshot no later than the given moment."""
     moment = datetime.now(timezone.utc) - delta
     result = await session.execute(
         select(PortfolioSnapshot)

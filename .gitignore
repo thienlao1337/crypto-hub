@@ -21,7 +21,7 @@ env/
 
 postgres_data/
 
-# Личные рабочие шаблоны для фриланс-процесса (используются в разных
-# проектах, к конкретно этому репозиторию не относятся).
+# Personal working templates for the freelance workflow (shared across
+# projects, not specific to this repository).
 CLAUDE.md
 kickoff-prompt-template.md

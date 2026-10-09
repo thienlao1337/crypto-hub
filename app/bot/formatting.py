@@ -1,7 +1,7 @@
-"""Разбор команд и оформление ответов бота.
+"""Command parsing and formatting of bot replies.
 
-Вынесено отдельно от обработчиков: разбор строки вроде «BTC > 70000» —
-чистая функция, и проверять её удобнее без Telegram.
+Kept separate from the handlers: parsing a string like "BTC > 70000" is a pure function
+and easier to test without Telegram.
 """
 
 import re
@@ -18,7 +18,7 @@ ALERT_PATTERN = re.compile(
 
 
 class CommandError(Exception):
-    """Команду не удалось разобрать — сообщение уйдёт пользователю."""
+    """The command couldn't be parsed - the message goes to the user."""
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ class AlertRequest:
 
 
 def parse_alert(text: str) -> AlertRequest:
-    """Разобрать «BTC > 70000» в параметры алерта."""
+    """Parse "BTC > 70000" into alert parameters."""
     match = ALERT_PATTERN.match(text or "")
     if match is None:
         raise CommandError(
@@ -64,7 +64,7 @@ def normalize_symbol(raw: str, *, quote: str = "USDT") -> str:
 
 
 def number(value) -> str:
-    """Число без хвоста нулей и без экспоненты."""
+    """A number without trailing zeros or exponent notation."""
     if value is None:
         return "—"
     if not isinstance(value, Decimal):
@@ -78,8 +78,8 @@ def money(value) -> str:
     if not isinstance(value, Decimal):
         value = Decimal(str(value))
     text = f"{value.quantize(Decimal('0.01')):,}".replace(",", " ")
-    # Знак перед символом валюты: «-$500», а не «$-500». Отрицательные
-    # суммы здесь появляются у нереализованного PnL.
+    # Sign before the currency symbol: "-$500", not "$-500". Negative amounts
+    # show up here for unrealized PnL.
     if text.startswith("-"):
         return f"-${text[1:]}"
     return f"${text}"
@@ -94,21 +94,21 @@ def percent(value, *, signed: bool = True) -> str:
 
 
 def moment(value, user, fmt: str = "%d.%m %H:%M") -> str:
-    """Время в поясе пользователя — та же функция, что и в панели."""
+    """Time in the user's time zone - the same function the panel uses."""
     return _moment(value, user, fmt)
 
 
 def direction_word(direction: str) -> str:
-    """Направление сигнала словом.
+    """Signal direction as a word.
 
-    Отдельной функцией, потому что вердиктов три, а не два: подстановка
-    «покупка иначе продажа» превращала бы нейтральный в продажу.
+    A separate function because there are three verdicts, not two: a "buy, otherwise
+    sell" shortcut would turn neutral into sell.
     """
     return {"buy": "покупка", "sell": "продажа"}.get(direction, "воздержаться")
 
 
 def arrow(value) -> str:
-    """Стрелка вместо цвета: в Telegram разметки цветом нет."""
+    """An arrow instead of color: Telegram markup has no colors."""
     if value is None:
         return "•"
     return "▲" if float(value) >= 0 else "▼"

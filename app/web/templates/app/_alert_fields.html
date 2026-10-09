@@ -1,8 +1,8 @@
-{# Поля алерта, общие для создания и редактирования.
+{# Alert fields shared by create and edit.
 
-   Вынесены в макрос, чтобы форма правки не разъезжалась с формой
-   создания: два одинаковых набора полей в разных файлах расходятся при
-   первом же изменении. #}
+   Extracted into a macro so the edit form doesn't drift from the create
+   form: two identical sets of fields in different files diverge on
+   the very first change. #}
 
 {% macro alert_fields(alert_types, markets, values) %}
   <div class="field">

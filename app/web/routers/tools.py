@@ -1,4 +1,4 @@
-"""Инструменты: конвертер и калькулятор сделки."""
+"""Tools: converter and trade calculator."""
 
 from decimal import Decimal
 

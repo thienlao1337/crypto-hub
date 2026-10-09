@@ -1,4 +1,4 @@
-"""Главный экран: портфель, рынок, свежие события."""
+"""Home screen: portfolio, market, recent events."""
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse

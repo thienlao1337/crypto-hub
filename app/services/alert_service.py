@@ -1,8 +1,8 @@
-"""Алерты: проверка условий, срабатывание и доставка.
+"""Alerts: condition checks, triggering and delivery.
 
-Условие проверяется по срезу котировок и, где нужно, по свечам. Решение
-о срабатывании отделено от записи в базу — так его можно проверить на
-придуманных данных.
+A condition is checked against the quote snapshot and, where needed, candles. The
+triggering decision is separate from writing to the database, so it can be tested on
+made-up data.
 """
 
 import logging
@@ -32,12 +32,12 @@ TYPE_PRICE_BELOW = "price_below"
 TYPE_PCT_CHANGE = "pct_change"
 TYPE_RSI = "rsi"
 
-# Таймфрейм, на котором считаются RSI и изменение за период для алертов.
+# Timeframe used for RSI and period change in alerts.
 ALERT_TIMEFRAME = "5m"
 
 
 class AlertError(Exception):
-    """Некорректно заданный алерт."""
+    """An incorrectly configured alert."""
 
 
 @dataclass(frozen=True)
@@ -54,7 +54,7 @@ def check(
     symbol: str,
     candles: list[Candle] | None = None,
 ) -> AlertHit | None:
-    """Проверить одно условие. Чистая функция, без базы."""
+    """Check a single condition. Pure function, no database."""
     if type_code == TYPE_PRICE_ABOVE:
         level = _decimal(params.get("level"))
         if price is None or level is None or price <= level:
@@ -73,7 +73,7 @@ def check(
     if type_code == TYPE_RSI:
         return _check_rsi(params, symbol, candles)
 
-    logger.warning("Неизвестный тип алерта: %s", type_code)
+    logger.warning("Unknown alert type: %s", type_code)
     return None
 
 
@@ -88,7 +88,7 @@ def _check_pct_change(
     since = datetime.now(timezone.utc) - timedelta(minutes=window)
     earlier = [c for c in candles if _as_utc(c.open_time) <= since]
     if not earlier:
-        # Истории не хватает — молчим, а не выдаём срабатывание наугад.
+        # Not enough history - stay silent rather than trigger at random.
         return None
 
     base = earlier[-1].close
@@ -98,7 +98,7 @@ def _check_pct_change(
     change = (price - base) / base * Decimal(100)
     if abs(change) < abs(threshold):
         return None
-    # Знак порога задаёт направление: -5 означает «упало на 5%».
+    # The sign of the threshold sets the direction: -5 means "dropped by 5%".
     if threshold > 0 and change < 0:
         return None
     if threshold < 0 and change > 0:
@@ -133,11 +133,11 @@ def _check_rsi(params: dict, symbol: str, candles: list[Candle] | None) -> Alert
     return AlertHit(f"{symbol}: RSI({period}) {value:.1f} {word} {_num(threshold)}.", None)
 
 
-# --- Работа с базой ---
+# --- Database operations ---
 
 
 def is_ready(alert: Alert, *, now: datetime | None = None) -> bool:
-    """Можно ли алерту срабатывать прямо сейчас."""
+    """Whether the alert is allowed to fire right now."""
     now = now or datetime.now(timezone.utc)
 
     if not alert.is_active:
@@ -147,8 +147,8 @@ def is_ready(alert: Alert, *, now: datetime | None = None) -> bool:
     if alert.trigger_limit is not None and alert.trigger_count >= alert.trigger_limit:
         return False
     if alert.last_triggered_at is not None:
-        # Пауза после срабатывания: без неё алерт «цена выше X» звонил бы
-        # на каждой проверке, пока цена держится выше уровня.
+        # Cooldown after triggering: without it a "price above X" alert would
+        # fire on every check while the price stays above the level.
         elapsed = now - _as_utc(alert.last_triggered_at)
         if elapsed < timedelta(seconds=alert.cooldown_seconds):
             return False
@@ -156,7 +156,7 @@ def is_ready(alert: Alert, *, now: datetime | None = None) -> bool:
 
 
 async def evaluate_all(session: AsyncSession) -> list[AlertTrigger]:
-    """Проверить все активные алерты и записать срабатывания."""
+    """Check all active alerts and record triggers."""
     rows = await session.execute(
         select(Alert, AlertType.code, Market.symbol)
         .join(AlertType, AlertType.id == Alert.alert_type_id)
@@ -181,7 +181,7 @@ async def evaluate_all(session: AsyncSession) -> list[AlertTrigger]:
         try:
             hit = check(type_code, alert.params or {}, price=price, symbol=symbol, candles=candles)
         except Exception:
-            logger.exception("Алерт %s не удалось проверить", alert.id)
+            logger.exception("Could not check alert %s", alert.id)
             continue
 
         if hit is None:
@@ -195,7 +195,7 @@ async def evaluate_all(session: AsyncSession) -> list[AlertTrigger]:
 
 
 async def fire(session: AsyncSession, alert: Alert, hit: AlertHit) -> AlertTrigger:
-    """Записать срабатывание и поставить уведомление в ленту."""
+    """Record a trigger and queue a notification in the feed."""
     now = datetime.now(timezone.utc)
 
     trigger = AlertTrigger(
@@ -210,8 +210,8 @@ async def fire(session: AsyncSession, alert: Alert, hit: AlertHit) -> AlertTrigg
     alert.last_triggered_at = now
     alert.trigger_count += 1
 
-    # id срабатывания нужен уведомлению, чтобы отправка потом отметила
-    # доставку именно у этой записи.
+    # The notification needs the trigger id so that sending can later mark
+    # delivery on exactly this row.
     await session.flush()
 
     notification = await notification_service.dispatch(
@@ -298,16 +298,16 @@ async def update_alert(
     trigger_limit: int | None = None,
     expires_at: datetime | None = None,
 ) -> Alert:
-    """Изменить существующий алерт.
+    """Edit an existing alert.
 
-    Счётчик срабатываний остаётся: он считает жизнь алерта и сходится с
-    записями в истории. Поэтому и лимит срабатываний считается от начала
-    жизни алерта, а не от последней правки — интерфейс показывает рядом
-    текущий счёт, чтобы это не было сюрпризом.
+    The trigger counter is kept: it counts over the alert's lifetime and matches the
+    history rows. That's why the trigger limit is also counted from the start of the
+    alert's life, not from the last edit - the UI shows the current count next to it so
+    this isn't a surprise.
 
-    А вот пауза после последнего срабатывания при смене условия
-    снимается — иначе новое условие молчало бы до конца паузы,
-    назначенной старому.
+    The cooldown after the last trigger, however, is cleared when the condition changes -
+    otherwise the new condition would stay silent until the end of the cooldown
+    assigned to the old one.
     """
     alert_type = await _alert_type(session, type_code)
     validate_params(type_code, params)
@@ -348,10 +348,10 @@ async def recent_triggers(
 
 
 def validate_limits(trigger_limit: int | None, expires_at: datetime | None) -> None:
-    """Проверить ограничения жизни алерта.
+    """Validate the alert's lifetime limits.
 
-    Срок в прошлом принимать нельзя: алерт молча не сработал бы ни разу,
-    и пользователь искал бы причину в условии.
+    An expiry in the past must not be accepted: the alert would silently never fire, and
+    the user would look for the cause in the condition.
     """
     if trigger_limit is not None and trigger_limit < 1:
         raise AlertError("Количество срабатываний — целое число от 1.")
@@ -360,7 +360,7 @@ def validate_limits(trigger_limit: int | None, expires_at: datetime | None) -> N
 
 
 def validate_params(type_code: str, params: dict) -> None:
-    """Проверить ввод до записи, чтобы алерт не молчал из-за опечатки."""
+    """Validate input before saving so the alert doesn't stay silent because of a typo."""
     if type_code in (TYPE_PRICE_ABOVE, TYPE_PRICE_BELOW):
         level = _decimal(params.get("level"))
         if level is None or level <= 0:
@@ -411,10 +411,10 @@ async def _recent_candles(
 
 
 def _num(value: Decimal | None) -> str:
-    """Число в сообщении без хвоста нулей.
+    """A number in the message without trailing zeros.
 
-    Numeric(36, 18) возвращает 79761.900000000000000000, и в тексте
-    уведомления это выглядит как сбой, а не как цена.
+    Numeric(36, 18) returns 79761.900000000000000000, and in a notification text that
+    looks like a glitch, not a price.
     """
     if value is None:
         return "—"

@@ -56,8 +56,8 @@
       {% for signal, symbol, timeframe_code in rows %}
       <article class="signal {{ signal.direction }}">
         <div class="signal-head">
-          {# Зелёный и красный только для направления цены; нейтральный
-             вердикт красится акцентом, а не «полукрасным». #}
+          {# Green and red are only for price direction; a neutral
+             verdict uses the accent color, not a "half-red". #}
           {% if signal.direction == 'buy' %}
             <span class="signal-badge up">покупка</span>
           {% elif signal.direction == 'sell' %}

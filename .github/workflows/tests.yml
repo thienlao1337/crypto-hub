@@ -8,9 +8,9 @@ jobs:
   pytest:
     runs-on: ubuntu-latest
 
-    # Тесты идут на настоящем PostgreSQL: на SQLite тип Numeric хранится
-    # как float, и суммы теряют точность — для продукта, который считает
-    # деньги, такой прогон ничего не доказывает.
+    # Tests run on real PostgreSQL: SQLite stores Numeric as float and amounts
+    # lose precision - for a product that handles money, such a run proves
+    # nothing.
     services:
       postgres:
         image: postgres:17-alpine

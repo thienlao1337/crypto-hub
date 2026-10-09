@@ -1,11 +1,11 @@
-"""Проверки движка сигналов.
+"""Signal engine tests.
 
-Решение отделено от базы, поэтому большую часть можно проверить на
-придуманных рядах цен — там видно, что именно вызвало сигнал.
+The decision is separate from the database, so most of it can be tested on made-up price
+series - there it's clear what exactly caused the signal.
 
-Ряды подобраны так, чтобы пересечение приходилось ровно на последнюю
-свечу: движок каждый прогон смотрит на свежую закрытую свечу, и сигнал
-из середины ряда он бы уже не увидел.
+The series are chosen so the crossover lands exactly on the last candle: on every run
+the engine looks at the freshest closed candle, and it would no longer see a signal from
+the middle of the series.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -21,9 +21,9 @@ from tests import fakes
 
 BASE_TIME = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
-# Пила вокруг 100: RSI держится в середине диапазона, а не упирается в край.
+# Sawtooth around 100: RSI stays in the middle of the range instead of hitting the edge.
 FLAT_WAVE = [round(100 + (3 if i % 2 else -3) + (i % 5) * 0.4, 2) for i in range(70)]
-# Та же пила со сносом вниз: к концу быстрая EMA под медленной.
+# The same sawtooth drifting down: by the end the fast EMA is below the slow one.
 SLIDING_DOWN = [round(100 - i * 0.15 + (2 if i % 2 else -2), 2) for i in range(70)]
 
 
@@ -34,14 +34,14 @@ def extend(prices: list[float], step: float, count: int) -> list[float]:
     return result
 
 
-# Разворот вверх: пересечение и buy на последней свече, RSI около 53.
+# Upward reversal: crossover and buy on the last candle, RSI around 53.
 BUY_SERIES = extend(SLIDING_DOWN, 0.9, 3)
-# Разворот вниз: sell на последней свече, RSI около 49.
+# Downward reversal: sell on the last candle, RSI around 49.
 SELL_SERIES = extend(FLAT_WAVE, -0.9, 6)
 
 
 def make_candles(prices, *, open_tail: bool = False) -> list[Candle]:
-    """Свечи прямо в память: analyse читает цену и признак закрытия."""
+    """Candles straight into memory: analyse reads the price and the closed flag."""
     candles = []
     for index, price in enumerate(prices):
         value = Decimal(str(price))
@@ -59,7 +59,7 @@ def make_candles(prices, *, open_tail: bool = False) -> list[Candle]:
     return candles
 
 
-# --- Чистое решение ---
+# --- Pure decision ---
 
 
 def test_no_signal_without_enough_history():
@@ -88,7 +88,7 @@ def test_sell_on_downward_cross():
 
 
 def test_overbought_cross_is_downgraded_to_neutral():
-    """Пересечение вверх на перекупленном RSI — не повод покупать."""
+    """An upward crossover with overbought RSI is no reason to buy."""
     decision = signal_service.analyse(make_candles(BUY_SERIES), {"rsi_overbought": 50})
 
     assert decision.direction == DIRECTION_NEUTRAL
@@ -96,7 +96,7 @@ def test_overbought_cross_is_downgraded_to_neutral():
 
 
 def test_oversold_cross_is_downgraded_to_neutral():
-    """Пересечение вниз на перепроданном RSI — продавать поздно."""
+    """A downward crossover with oversold RSI - too late to sell."""
     decision = signal_service.analyse(make_candles(SELL_SERIES), {"rsi_oversold": 55})
 
     assert decision.direction == DIRECTION_NEUTRAL
@@ -104,7 +104,7 @@ def test_oversold_cross_is_downgraded_to_neutral():
 
 
 def test_reason_names_the_indicators():
-    """Карточка сигнала обязана объяснять себя, а не говорить «buy»."""
+    """A signal card must explain itself, not just say "buy"."""
     decision = signal_service.analyse(make_candles(BUY_SERIES))
 
     assert "EMA9" in decision.reason
@@ -122,7 +122,7 @@ def test_custom_periods_are_used():
 
 
 def test_unclosed_candle_is_ignored():
-    """Незакрытая свеча ещё может измениться — решать по ней нельзя."""
+    """An open candle can still change - deciding on it isn't allowed."""
     closed_only = signal_service.analyse(make_candles(BUY_SERIES))
     with_open_tail = signal_service.analyse(
         make_candles(BUY_SERIES + [999], open_tail=True)
@@ -130,12 +130,12 @@ def test_unclosed_candle_is_ignored():
 
     assert closed_only is not None
     assert with_open_tail is not None
-    # Огромная незакрытая свеча не изменила решение: её просто отбросили.
+    # A huge open candle didn't change the decision: it was simply discarded.
     assert with_open_tail.candle_time == closed_only.candle_time
     assert with_open_tail.direction == closed_only.direction
 
 
-# --- Запись в базу ---
+# --- Writing to the database ---
 
 
 @pytest_asyncio.fixture
@@ -190,7 +190,7 @@ async def test_signal_is_stored_with_explanation(session, rule_setup):
 
 
 async def test_same_candle_does_not_produce_duplicate(session, rule_setup):
-    """Движок может пройти по свече дважды — сигнал должен быть один."""
+    """The engine may pass over a candle twice - there must be one signal."""
     first = await signal_service.evaluate_rule(
         session, rule_setup["rule"], rule_setup["market"], rule_setup["timeframe"]
     )
@@ -219,7 +219,7 @@ async def test_recent_signals_include_pair_and_timeframe(session, rule_setup):
     assert timeframe_code == "1h"
 
 
-# --- Оценка результата ---
+# --- Scoring the outcome ---
 
 
 async def test_outcome_marks_successful_buy(session, rule_setup):
@@ -270,7 +270,7 @@ async def test_outcome_marks_failed_buy(session, rule_setup):
 
 
 async def test_outcome_waits_for_horizon(session, rule_setup):
-    """Сигнал, у которого горизонт ещё не истёк, не оценивается."""
+    """A signal whose horizon hasn't passed yet isn't scored."""
     rule_setup["rule"].evaluation_horizon_minutes = 60 * 24 * 365
     await signal_service.evaluate_rule(
         session, rule_setup["rule"], rule_setup["market"], rule_setup["timeframe"]
@@ -326,14 +326,14 @@ async def test_accuracy_counts_only_evaluated(session, rule_setup):
     assert stats["avg_pnl_pct"] == 10.0
 
 
-# --- Нейтральный вердикт ---
+# --- Neutral verdict ---
 
 
 async def test_neutral_verdict_is_stored_too(session, rule_setup):
-    """«Пересечение было, но входить не стоит» — тоже результат.
+    """"There was a crossover, but entering isn't worth it" is a result too.
 
-    Раньше такой вердикт молча выбрасывался, и пользователь видел тишину
-    там, где движок на самом деле подумал и решил не входить.
+    Previously such a verdict was silently discarded, and the user saw silence where the
+    engine had actually thought it over and decided not to enter.
     """
     rule = rule_setup["rule"]
     rule.config = dict(signal_service.DEFAULT_CONFIG, rsi_overbought=50)
@@ -350,7 +350,7 @@ async def test_neutral_verdict_is_stored_too(session, rule_setup):
 
 
 async def test_neutral_verdict_stays_out_of_accuracy(session, rule_setup):
-    """Он ничего не утверждает о направлении — значит, и «сбыться» не может."""
+    """It says nothing about direction - so it can't "come true" either."""
     rule = rule_setup["rule"]
     rule.config = dict(signal_service.DEFAULT_CONFIG, rsi_overbought=50)
     rule.evaluation_horizon_minutes = 60

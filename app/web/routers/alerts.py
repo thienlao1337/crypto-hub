@@ -1,4 +1,4 @@
-"""Алерты: список, создание, правка, удаление."""
+"""Alerts: list, create, edit, delete."""
 
 from datetime import datetime
 
@@ -122,9 +122,9 @@ async def edit_alert_page(
     markets, _ = await _market_options(session, user)
     alert_type = await session.get(AlertType, alert.alert_type_id)
 
-    # Пара алерта может не входить в список отслеживания — например,
-    # её убрали оттуда позже. В выборе она должна остаться, иначе
-    # сохранение формы молча переставило бы алерт на другую пару.
+    # The alert's pair may not be in the watchlist - for example, it was
+    # removed from there later. It must stay in the choices, otherwise saving
+    # the form would silently move the alert to a different pair.
     if not any(option["id"] == alert.market_id for option in markets):
         market = await session.get(Market, alert.market_id)
         if market is not None:
@@ -263,11 +263,11 @@ async def _alert_types(session: AsyncSession) -> list[AlertType]:
 async def _market_options(
     session: AsyncSession, user: User
 ) -> tuple[list[dict], bool]:
-    """Пары для выпадающего списка.
+    """Pairs for the dropdown.
 
-    Предлагаем список отслеживания, а не всю тысячу пар: алерт по паре,
-    за которой никто не следит, некому проверять — фоновый процесс
-    качает свечи только по watchlist.
+    We offer the watchlist, not all thousand pairs: an alert on a pair nobody watches
+    has nobody to check it - the background process downloads candles only for the
+    watchlist.
     """
     watched = await watchlist_service.list_items(session, user)
     if watched:
@@ -292,7 +292,7 @@ async def _market_options(
 
 
 def _limit(raw: str) -> int | None:
-    """Пусто — без ограничения; мусор отсекает сервис."""
+    """Empty - no limit; the service filters out junk."""
     raw = (raw or "").strip()
     if not raw:
         return None
@@ -303,10 +303,10 @@ def _limit(raw: str) -> int | None:
 
 
 def _deadline(raw: str, user: User) -> datetime | None:
-    """Разобрать datetime-local как местное время пользователя.
+    """Parse datetime-local as the user's local time.
 
-    Браузер отдаёт его без пояса, и это время пользователя, а не сервера:
-    принять его за UTC значило бы промахнуться ровно на разницу поясов.
+    The browser sends it without a zone, and it's the user's time, not the server's:
+    taking it as UTC would be off by exactly the zone difference.
     """
     raw = (raw or "").strip()
     if not raw:
@@ -319,7 +319,7 @@ def _deadline(raw: str, user: User) -> datetime | None:
 
 
 def _values_from(alert, type_code: str | None, user_timezone: str | None = None) -> dict:
-    """Заполнить форму значениями существующего алерта."""
+    """Fill the form with an existing alert's values."""
     params = alert.params or {}
     values = dict(DEFAULT_VALUES)
     values.update(
@@ -356,7 +356,7 @@ def _params_for(
     period: int,
     direction: str,
 ) -> dict:
-    """Собрать параметры под конкретный тип, отбросив чужие поля."""
+    """Build parameters for a specific type, dropping fields that belong to other types."""
     if type_code in (alert_service.TYPE_PRICE_ABOVE, alert_service.TYPE_PRICE_BELOW):
         return {"level": level.strip().replace(",", ".")}
     if type_code == alert_service.TYPE_PCT_CHANGE:

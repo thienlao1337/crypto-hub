@@ -26,10 +26,9 @@ NOTIFICATION_SYSTEM = "system"
 
 
 class AlertType(Base):
-    """Справочник типов алертов — редактируется из админки.
+    """Alert type reference table - edited from the admin panel.
 
-    code разбирается движком проверки: price_above, price_below,
-    pct_change, rsi.
+    code is interpreted by the check engine: price_above, price_below, pct_change, rsi.
     """
 
     __tablename__ = "alert_types"
@@ -43,11 +42,11 @@ class AlertType(Base):
 
 
 class Alert(Base):
-    """Пользовательский алерт.
+    """A user alert.
 
-    params зависит от типа: {"level": "70000"} для цены,
-    {"pct": 5, "window_minutes": 60} для изменения,
-    {"period": 14, "threshold": 70, "direction": "above"} для RSI.
+    params depends on the type: {"level": "70000"} for price,
+    {"pct": 5, "window_minutes": 60} for change,
+    {"period": 14, "threshold": 70, "direction": "above"} for RSI.
     """
 
     __tablename__ = "alerts"
@@ -60,12 +59,12 @@ class Alert(Base):
     params: Mapped[dict] = mapped_column(JsonB, nullable=False)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    # Пауза после срабатывания — иначе алерт «цена выше X» будет звонить
-    # на каждой проверке, пока цена держится выше уровня.
+    # Cooldown after triggering - otherwise a "price above X" alert would fire
+    # on every check while the price stays above the level.
     cooldown_seconds: Mapped[int] = mapped_column(Integer, default=3600, nullable=False)
     last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     trigger_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    # NULL — срабатывать неограниченно.
+    # NULL - trigger an unlimited number of times.
     trigger_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -85,7 +84,7 @@ class Alert(Base):
 
 
 class AlertTrigger(Base):
-    """Факт срабатывания — отдельной записью, не перезаписью счётчика."""
+    """A trigger event - a separate row, not an overwritten counter."""
 
     __tablename__ = "alert_triggers"
     __table_args__ = (Index("ix_alert_triggers_time", "alert_id", "triggered_at"),)
@@ -106,7 +105,7 @@ class AlertTrigger(Base):
 
 
 class Notification(Base):
-    """Запись в ленте уведомлений веб-панели."""
+    """An entry in the web panel notification feed."""
 
     __tablename__ = "notifications"
     __table_args__ = (Index("ix_notifications_user_time", "user_id", "created_at"),)
@@ -120,15 +119,16 @@ class Notification(Base):
     payload: Mapped[dict | None] = mapped_column(JsonB, nullable=True)
 
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    # Показывать ли запись в ленте панели. Уведомление, которому оставлен
-    # только Telegram, всё равно проходит через эту таблицу — она же
-    # очередь отправки, — но в ленте не появляется.
+    # Whether to show the entry in the panel feed. A notification limited to
+    # Telegram still goes through this table - it is also the send queue - but
+    # doesn't appear in the feed.
     show_web: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    # Отправка в Telegram отделена от записи: уведомление не теряется,
-    # если бот в этот момент недоступен, и уходит следующим проходом.
+    # Sending to Telegram is separate from recording: the notification isn't
+    # lost if the bot is unavailable at that moment, and goes out on the next
+    # pass.
     delivered_telegram: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    # Веб-пуш идёт по тому же каналу, что и лента: пуш — это способ
-    # доставить в браузер то, что и так попало бы в ленту.
+    # Web push follows the same channel as the feed: push is a way to deliver
+    # to the browser what would have landed in the feed anyway.
     delivered_push: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     delivery_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -136,7 +136,7 @@ class Notification(Base):
 
 
 class NotificationSetting(Base):
-    """Что и куда слать. Отсутствие строки трактуется как «включено»."""
+    """What to send and where. A missing row is treated as "enabled"."""
 
     __tablename__ = "notification_settings"
     __table_args__ = (UniqueConstraint("user_id", "event_type", "channel"),)
@@ -149,12 +149,12 @@ class NotificationSetting(Base):
 
 
 class PushSubscription(Base):
-    """Подписка браузера на веб-пуш.
+    """A browser web-push subscription.
 
-    Одна строка на устройство и браузер: подписавшись с телефона и с
-    ноутбука, пользователь получает уведомление на оба. endpoint выдаёт
-    push-сервис браузера, он же служит идентификатором — переподписка с
-    того же устройства обновляет строку, а не плодит новые.
+    One row per device and browser: subscribed from a phone and a laptop, the user gets
+    the notification on both. endpoint is issued by the browser's push service and
+    doubles as the identifier - resubscribing from the same device updates the row
+    instead of adding new ones.
     """
 
     __tablename__ = "push_subscriptions"
@@ -164,12 +164,12 @@ class PushSubscription(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
     endpoint: Mapped[str] = mapped_column(Text, nullable=False)
-    # Ключи из PushSubscription браузера: ими шифруется полезная
-    # нагрузка, читать её может только это устройство.
+    # Keys from the browser's PushSubscription: they encrypt the payload, which
+    # only this device can read.
     p256dh: Mapped[str] = mapped_column(String(255), nullable=False)
     auth: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    # Чтобы в списке устройств было видно, какое из них какое.
+    # So the device list shows which one is which.
     label: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)

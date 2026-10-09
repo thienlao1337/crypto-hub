@@ -1,4 +1,4 @@
-"""Рынок: свечной график, индикаторы и сравнение бирж."""
+"""Market: candlestick chart, indicators and exchange comparison."""
 
 import asyncio
 import json
@@ -24,12 +24,12 @@ router = APIRouter(prefix="/market", tags=["market"])
 DEFAULT_SYMBOL = "BTC/USDT"
 DEFAULT_TIMEFRAME = "1h"
 
-# Наборы по умолчанию: то, что чаще всего включают на графике.
+# Default sets: what people most often turn on in the chart.
 DEFAULT_INDICATORS = {"ema": [9, 21], "sma": [], "rsi": 14, "macd": False, "bollinger": False}
 
 
 def slug_to_symbol(slug: str) -> str:
-    """BTC-USDT -> BTC/USDT. В адресе косая черта неудобна."""
+    """BTC-USDT -> BTC/USDT. A slash is awkward in a URL."""
     return slug.replace("-", "/").upper()
 
 
@@ -43,7 +43,7 @@ async def market_index(
     user: User = Depends(auth.require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Список доступных пар с текущими ценами."""
+    """List of available pairs with current prices."""
     rows = await session.execute(
         select(Exchange.code, Market.symbol, MarketTicker)
         .select_from(Market)
@@ -92,11 +92,11 @@ async def candles_api(
     user: User = Depends(auth.require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Свечи и индикаторы для графика.
+    """Candles and indicators for the chart.
 
-    Индикаторы считаются на сервере, а не в браузере: те же функции
-    используются движком сигналов, и расхождение между тем, что видит
-    пользователь, и тем, по чему сработал сигнал, недопустимо.
+    Indicators are computed on the server, not in the browser: the same functions are
+    used by the signal engine, and a mismatch between what the user sees and what a
+    signal fired on is unacceptable.
     """
     market = await session.get(Market, market_id)
     selected = await candle_service.get_timeframe(session, timeframe)
@@ -138,7 +138,7 @@ async def toggle_watch(
     user: User = Depends(auth.require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Добавить пару в список отслеживания или убрать из него."""
+    """Add a pair to the watchlist or remove it."""
     auth.verify_csrf(request, csrf_token)
 
     try:
@@ -155,7 +155,7 @@ async def toggle_watch(
         if watched
         else "Пара убрана из отслеживаемых.",
     )
-    # Открытый редирект недопустим: возвращаем только внутрь панели.
+    # Open redirects are not allowed: we only return within the panel.
     return RedirectResponse(back if back.startswith("/") else "/market", status_code=303)
 
 
@@ -203,13 +203,13 @@ async def market_page(
 
 @router.websocket("/stream/{exchange_code}/{slug}")
 async def market_stream(websocket: WebSocket, exchange_code: str, slug: str):
-    """Стакан и лента сделок в реальном времени.
+    """Real-time order book and trade feed.
 
-    Соединение с биржей общее на всех зрителей — им заведует
-    мультиплексор, см. app/exchanges/ws_hub.py.
+    The exchange connection is shared by all viewers - it's managed by the multiplexer,
+    see app/exchanges/ws_hub.py.
     """
-    # Сессионная cookie доступна и в WebSocket: SessionMiddleware стоит
-    # выше по стеку. Анонимных сюда не пускаем.
+    # The session cookie is available in the WebSocket too: SessionMiddleware
+    # sits higher in the stack. Anonymous users aren't let in.
     if not websocket.session.get(auth.SESSION_USER_ID):
         await websocket.close(code=4401)
         return
@@ -219,8 +219,8 @@ async def market_stream(websocket: WebSocket, exchange_code: str, slug: str):
     async with session_scope() as session:
         market = await _find_market(session, exchange_code, symbol)
     if market is None:
-        # Подписываться можно только на пары, которые у нас заведены,
-        # иначе адрес превращается в произвольный запрос к бирже.
+        # Subscriptions are only allowed for pairs we have registered,
+        # otherwise the URL becomes an arbitrary request to the exchange.
         await websocket.close(code=4404)
         return
 
@@ -263,7 +263,7 @@ async def _find_market(session: AsyncSession, exchange_code: str, symbol: str) -
 
 
 def _periods(raw: str) -> list[int]:
-    """Разобрать «9,21» в список периодов, отбросив мусор."""
+    """Parse "9,21" into a list of periods, dropping junk."""
     periods = []
     for chunk in raw.split(","):
         chunk = chunk.strip()

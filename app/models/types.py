@@ -1,28 +1,28 @@
-"""Общие типы колонок.
+"""Shared column types.
 
-Вынесены отдельно, чтобы решения по точности и диалектам были в одном
-месте, а не размазаны по моделям.
+Kept separately so decisions about precision and dialects live in one place instead of
+being scattered across models.
 """
 
 from sqlalchemy import JSON, BigInteger, Integer, Numeric
 from sqlalchemy.dialects.postgresql import JSONB
 
-# JSONB на PostgreSQL (индексируемый), обычный JSON на прочих диалектах.
+# JSONB on PostgreSQL (indexable), plain JSON on other dialects.
 JsonB = JSON().with_variant(JSONB, "postgresql")
 
-# SQLite делает автоинкремент только для колонки типа INTEGER. Тесты
-# сейчас идут на PostgreSQL, но вариант оставлен: он ничего не стоит и
-# снимает грабли, если базу когда-нибудь поднимут на SQLite.
+# SQLite only auto-increments an INTEGER column. Tests run on PostgreSQL now,
+# but the variant stays: it costs nothing and removes a pitfall if the database
+# is ever run on SQLite.
 BigPk = BigInteger().with_variant(Integer, "sqlite")
 
-# Деньги и количества — только Numeric. float здесь недопустим: накопленная
-# ошибка округления на балансах и PnL даёт расхождение с отчётом биржи,
-# и объяснить это клиенту будет нечем.
-Amount = Numeric(36, 18)  # количество монет
-Price = Numeric(36, 18)  # цена инструмента
-Usd = Numeric(20, 8)  # оценка в долларах
-# Общерыночные суммы: капитализация всего рынка измеряется триллионами,
-# а Numeric(20, 8) держит меньше 10^12 — на живых данных это сразу даёт
-# переполнение. Дробные копейки здесь не нужны, зато нужен запас разрядов.
+# Money and quantities - Numeric only. float is not acceptable here:
+# accumulated rounding error on balances and PnL produces a mismatch with the
+# exchange report, and there'd be no way to explain it to the client.
+Amount = Numeric(36, 18)  # coin quantity
+Price = Numeric(36, 18)  # instrument price
+Usd = Numeric(20, 8)  # value in dollars
+# Market-wide totals: the total market cap is measured in trillions, while
+# Numeric(20, 8) holds less than 10^12 - live data overflows it immediately.
+# Fractions of a cent aren't needed here, but headroom in digits is.
 BigUsd = Numeric(30, 2)
-Pct = Numeric(12, 4)  # проценты
+Pct = Numeric(12, 4)  # percentages

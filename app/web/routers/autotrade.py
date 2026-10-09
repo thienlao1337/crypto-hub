@@ -1,7 +1,7 @@
-"""Автотрейдинг: стратегии, режимы, журнал.
+"""Auto-trading: strategies, modes, log.
 
-Все действия, меняющие режим или запускающие стратегию, идут через
-сервис — проверки прав и лимитов не должны жить в роутере.
+All actions that change the mode or start a strategy go through the service - permission
+and limit checks must not live in the router.
 """
 
 from decimal import Decimal
@@ -159,8 +159,8 @@ async def change_mode(
         flash.error(request, str(exc))
         return RedirectResponse(PAGE, status_code=303)
 
-    # Реальные сделки требуют отдельной отметки в форме: одного выбора
-    # режима в списке для этого мало.
+    # Live trading requires a separate checkbox in the form: picking the mode
+    # in a dropdown isn't enough.
     if mode == "live" and not confirm:
         flash.error(
             request,
@@ -219,10 +219,10 @@ async def resume_after_halt(
     user: User = Depends(auth.require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Снять дневную остановку вручную.
+    """Lift the daily stop manually.
 
-    Автоматически она не снимается: смысл лимита в том, чтобы человек
-    посмотрел на происходящее, прежде чем продолжить.
+    It isn't lifted automatically: the point of the limit is for a person to look at
+    what's going on before continuing.
     """
     auth.verify_csrf(request, csrf_token)
     target = f"{PAGE}/{strategy_id}"

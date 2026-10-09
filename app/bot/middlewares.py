@@ -1,4 +1,4 @@
-"""Промежуточные слои бота: сессия БД, пользователь, обработка ошибок."""
+"""Bot middlewares: DB session, user, error handling."""
 
 import logging
 from collections.abc import Awaitable, Callable
@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 class DbSessionMiddleware(BaseMiddleware):
-    """Своя сессия на каждое сообщение.
+    """A dedicated session per message.
 
-    Одна сессия на весь процесс не годится: ошибка в одном обработчике
-    оставила бы её в непригодном состоянии для всех следующих.
+    One session for the whole process won't do: an error in one handler would leave it
+    unusable for every following one.
     """
 
     async def __call__(
@@ -32,11 +32,10 @@ class DbSessionMiddleware(BaseMiddleware):
 
 
 class UserMiddleware(BaseMiddleware):
-    """Подставляет пользователя панели по идентификатору Telegram.
+    """Injects the panel user by Telegram id.
 
-    Не найден — в data приходит None, и обработчик сам решает, что
-    сказать. Отсекать здесь нельзя: команда привязки должна работать и
-    для непривязанного аккаунта.
+    If not found, data gets None and the handler decides what to say. We can't reject
+    here: the linking command has to work for an unlinked account too.
     """
 
     async def __call__(
@@ -57,9 +56,9 @@ class UserMiddleware(BaseMiddleware):
 
 
 class ErrorsMiddleware(BaseMiddleware):
-    """Один обработчик ошибок на всех: бот не должен молча умолкать.
+    """One error handler for everything: the bot must never go silent.
 
-    Пользователю уходит понятная фраза, подробности — в журнал сервера.
+    The user gets a clear message; the details go to the server log.
     """
 
     async def __call__(
@@ -71,7 +70,7 @@ class ErrorsMiddleware(BaseMiddleware):
         try:
             return await handler(event, data)
         except Exception:
-            logger.exception("Ошибка в обработчике бота")
+            logger.exception("Error in bot handler")
             if isinstance(event, Message):
                 await event.answer(
                     "Что-то пошло не так. Ошибка записана, попробуйте ещё раз."

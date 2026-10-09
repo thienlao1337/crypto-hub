@@ -1,9 +1,8 @@
-"""Проверки автотрейдинга.
+"""Auto-trading tests.
 
-Здесь ошибка стоит денег пользователя, поэтому проверяется в первую
-очередь то, что бот НЕ делает: не торгует при выключенном рубильнике, не
-уходит в live без подтверждения, не продолжает после дневного лимита
-убытка.
+A mistake here costs the user money, so first of all we test what the bot does NOT do:
+doesn't trade with the kill switch off, doesn't go live without confirmation, doesn't
+continue after the daily loss limit.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -34,7 +33,7 @@ NOW = datetime.now(timezone.utc)
 
 @pytest_asyncio.fixture
 async def setup(session, monkeypatch):
-    """Пользователь с депозитом 10 000 USDT и стратегией на BTC/USDT."""
+    """A user with a 10,000 USDT deposit and a BTC/USDT strategy."""
     monkeypatch.setattr(auto.settings, "autotrade_enabled", True, raising=False)
 
     exchange = Exchange(code="bybit", name="Bybit", sort_order=10)
@@ -109,7 +108,7 @@ def make_signal(setup, direction: str = "buy") -> Signal:
     )
 
 
-# --- Ограничения параметров ---
+# --- Parameter limits ---
 
 
 @pytest.mark.parametrize(
@@ -122,7 +121,7 @@ def make_signal(setup, direction: str = "buy") -> Signal:
         {"daily_loss_limit_pct": Decimal(90)},
         {"stop_loss_pct": Decimal(99)},
         {"take_profit_pct": Decimal(0)},
-        # Позиция больше собственного потолка — противоречие в настройках.
+        # A position larger than its own cap is a contradiction in the settings.
         {"position_size_pct": Decimal(30), "max_pct_per_trade": Decimal(10)},
     ],
 )
@@ -150,11 +149,11 @@ def test_reasonable_parameters_accepted():
     )
 
 
-# --- Режимы ---
+# --- Modes ---
 
 
 async def test_strategy_starts_paper_and_stopped(session, setup):
-    """Созданная стратегия не должна ничего делать сама по себе."""
+    """A newly created strategy must not do anything on its own."""
     strategy = setup["strategy"]
 
     assert strategy.mode == MODE_PAPER
@@ -192,7 +191,7 @@ async def test_live_records_confirmation_and_stops_strategy(session, setup):
 
     assert strategy.mode == MODE_LIVE
     assert strategy.live_confirmed_at is not None
-    # Смена режима останавливает: запуск — отдельное осознанное действие.
+    # Changing the mode stops the strategy: starting it is a separate deliberate action.
     assert not strategy.is_active
 
 
@@ -207,8 +206,8 @@ async def test_leaving_live_clears_confirmation(session, setup):
 
 async def test_cannot_start_live_without_confirmation(session, setup):
     strategy = setup["strategy"]
-    # Режим подменяем напрямую, минуя проверки — так мог бы выглядеть
-    # испорченный ряд в базе.
+    # Swap the mode directly, bypassing the checks - this is what a corrupted
+    # row in the database could look like.
     strategy.mode = MODE_LIVE
     strategy.live_confirmed_at = None
     await session.commit()
@@ -222,7 +221,7 @@ async def test_unknown_mode_rejected(session, setup):
         await auto.set_mode(session, setup["user"], setup["strategy"], "что-то своё")
 
 
-# --- Расчёт размера ---
+# --- Size calculation ---
 
 
 def test_position_size_uses_share_of_equity(setup=None):
@@ -239,12 +238,12 @@ def test_position_size_uses_share_of_equity(setup=None):
     )
 
     assert decision.action == "open"
-    # 10% от 10 000 = 1 000 USD, при цене 80 000 это 0.0125 BTC.
+    # 10% of 10,000 = 1,000 USD; at a price of 80,000 that's 0.0125 BTC.
     assert decision.amount == Decimal("0.0125")
 
 
 def test_position_size_capped_by_max_per_trade():
-    """Потолок на сделку сильнее заданного размера позиции."""
+    """The per-trade cap overrides the configured position size."""
     strategy = type("S", (), {
         "position_size_pct": Decimal(30),
         "max_pct_per_trade": Decimal(5),
@@ -276,11 +275,11 @@ def test_no_order_without_equity_or_price():
     ).action == "skip"
 
 
-# --- Исполнение ---
+# --- Execution ---
 
 
 async def test_global_switch_blocks_everything(session, setup, monkeypatch):
-    """Выключенный рубильник важнее любых настроек стратегии."""
+    """A switched-off kill switch beats any strategy settings."""
     monkeypatch.setattr(auto.settings, "autotrade_enabled", False, raising=False)
     strategy = setup["strategy"]
     strategy.is_active = True
@@ -311,7 +310,7 @@ async def test_paper_order_does_not_touch_exchange(session, setup):
     session.add(signal)
     await session.commit()
 
-    # Адаптер не передаём вовсе: в бумажном режиме он не нужен.
+    # No adapter passed at all: paper mode doesn't need it.
     order = await auto.execute(session, strategy, signal)
     await session.commit()
 
@@ -319,7 +318,7 @@ async def test_paper_order_does_not_touch_exchange(session, setup):
     assert order.mode == MODE_PAPER
     assert order.status == "filled"
     assert order.amount == Decimal("0.0125")
-    # Стоп и тейк считаются от цены входа.
+    # Stop and take are computed from the entry price.
     assert order.stop_loss == Decimal(80_000) * Decimal("0.98")
     assert order.take_profit == Decimal(80_000) * Decimal("1.04")
 
@@ -344,7 +343,7 @@ async def test_halted_strategy_skips_with_reason(session, setup):
 
 
 async def test_live_mode_without_adapter_refuses(session, setup):
-    """Без подключения к бирже реальный ордер не выставляется молча."""
+    """Without an exchange connection a real order isn't silently placed."""
     strategy = setup["strategy"]
     await auto.set_mode(session, setup["user"], strategy, MODE_TESTNET)
     await auto.set_active(session, strategy, True)
@@ -407,17 +406,18 @@ async def test_order_reaches_exchange_in_testnet(session, setup):
     await session.commit()
 
     assert adapter.calls == [("BTC/USDT", "buy", Decimal("0.0125"))]
-    # Именно колонка, а не одноимённый атрибут: присваивание чужого имени
-    # ORM молча проглатывает, и id ордера с биржи не сохранялся.
+    # The actual column, not an attribute of the same name: the ORM silently
+    # swallows assignment to an unknown name, and the exchange order id wasn't
+    # being saved.
     assert order.external_order_id == "ex-1"
     reloaded = await session.get(BotOrder, order.id)
     assert reloaded.external_order_id == "ex-1"
     assert order.mode == MODE_TESTNET
-    # Цена берётся фактическая, а не расчётная.
+    # The actual price is used, not the estimated one.
     assert order.price == Decimal(80_010)
 
 
-# --- Лимит убытка ---
+# --- Loss limit ---
 
 
 async def test_daily_loss_limit_halts_strategy(session, setup):
@@ -459,17 +459,17 @@ async def test_risk_state_is_per_day(session, setup):
     state.realized_pnl_pct = Decimal(-4)
     await session.commit()
 
-    # Тот же день — то же состояние.
+    # Same day - same state.
     again = await auto.risk_state(session, strategy)
     assert again.id == state.id
     assert again.realized_pnl_pct == Decimal(-4)
 
 
-# --- Журнал ---
+# --- Log ---
 
 
 async def test_journal_records_every_decision(session, setup):
-    """По ТЗ журнал должен объяснять и действие, и бездействие."""
+    """Per the spec, the log must explain both action and inaction."""
     strategy = setup["strategy"]
     await auto.set_active(session, strategy, True)
     signal = make_signal(setup)
@@ -497,7 +497,7 @@ async def test_other_users_strategy_is_not_accessible(session, setup):
         await auto.get_strategy(session, stranger, setup["strategy"].id)
 
 
-# --- Жизненный цикл позиции ---
+# --- Position lifecycle ---
 
 
 def make_order(price: str, amount: str, *, stop: str | None = None, take: str | None = None):
@@ -511,7 +511,7 @@ def make_order(price: str, amount: str, *, stop: str | None = None, take: str | 
 
 
 def test_stop_loss_wins_when_both_levels_touched():
-    """Порядок событий внутри интервала неизвестен — считаем по худшему."""
+    """The order of events within an interval is unknown - assume the worst."""
     order = make_order("100", "1", stop="98", take="104")
 
     assert auto.exit_reason(order, Decimal(97)) == auto.EXIT_STOP_LOSS
@@ -551,7 +551,7 @@ def test_second_buy_does_not_stack_position():
 
 
 def test_sell_without_position_is_refused():
-    """На споте это была бы продажа монет самого пользователя."""
+    """On spot this would be selling the user's own coins."""
     strategy = type("S", (), {
         "position_size_pct": Decimal(10), "max_pct_per_trade": Decimal(20),
     })()
@@ -590,7 +590,7 @@ async def test_paper_position_opens_once_and_closes_by_signal(session, setup):
     assert opened is not None
     assert opened.status == auto.STATUS_OPEN
 
-    # Второй сигнал на покупку не должен набирать позицию заново.
+    # A second buy signal must not build up the position again.
     another_buy = make_signal(setup)
     session.add(another_buy)
     await session.flush()
@@ -614,7 +614,7 @@ async def test_paper_position_opens_once_and_closes_by_signal(session, setup):
 
 
 async def test_stop_loss_closes_position_without_signal(session, setup):
-    """Стоп-лосс на то и стоп, что срабатывает сам."""
+    """A stop-loss is a stop precisely because it fires on its own."""
     strategy = setup["strategy"]
     strategy.is_active = True
     await session.flush()
@@ -677,10 +677,10 @@ async def test_check_exits_quiet_while_price_between_levels(session, setup):
 
 
 async def test_daily_limit_counts_share_of_deposit_not_of_position(session, setup):
-    """Стоп в 2% на позиции в 10% депозита стоит 0.2%, а не 2%.
+    """A 2% stop on a position worth 10% of the deposit costs 0.2%, not 2%.
 
-    Перепутать эти величины значило бы останавливать бота в разы раньше
-    срока — и дневной лимит убытка перестал бы что-либо значить.
+    Mixing these up would stop the bot many times too early - and the daily loss limit
+    would stop meaning anything.
     """
     strategy = setup["strategy"]
     strategy.is_active = True
@@ -700,13 +700,13 @@ async def test_daily_limit_counts_share_of_deposit_not_of_position(session, setu
 
     state = await auto.risk_state(session, strategy)
     assert state.trades_count == 1
-    # Позиция — 10% депозита, стоп −2% от неё: около −0.2% депозита.
+    # Position is 10% of the deposit, stop is -2% of it: about -0.2% of the deposit.
     assert Decimal("-0.5") < state.realized_pnl_pct < Decimal(0)
     assert state.is_halted is False
 
 
 async def test_daily_limit_halts_after_enough_losses(session, setup):
-    """Лимит должен действительно останавливать, а не просто считаться."""
+    """The limit must actually stop the strategy, not just be counted."""
     strategy = setup["strategy"]
     strategy.is_active = True
     await session.flush()
@@ -720,7 +720,7 @@ async def test_daily_limit_halts_after_enough_losses(session, setup):
 
 
 def test_journal_numbers_have_no_zero_tail():
-    """Numeric(36, 18) в тексте журнала читается как сбой, а не как цена."""
+    """Numeric(36, 18) in log text reads as a glitch, not a price."""
     strategy = type("S", (), {
         "position_size_pct": Decimal("5.0000"), "max_pct_per_trade": Decimal(20),
     })()
@@ -731,20 +731,20 @@ def test_journal_numbers_have_no_zero_tail():
         price=Decimal("79903.000000000000000000"), has_open_position=False,
     )
 
-    # Точка в конце предложения — не хвост: проверяем именно нули.
+    # The period at the end of the sentence isn't a tail: we check specifically for zeros.
     assert decision.reason.endswith("по цене 79903.")
     assert "79903.0" not in decision.reason
     assert "5%" in decision.reason and "5.0000%" not in decision.reason
 
 
-# --- Живой путь: объём, минимальный лот и остаток на балансе ---
+# --- Live path: amount, minimum lot and balance ---
 
 
 def test_amount_below_exchange_minimum_is_refused():
-    """Такая сделка не состоялась бы и на бирже — значит, и в бумажной.
+    """Such a trade wouldn't have happened on the exchange - so not in paper mode
+either.
 
-    Записать её в бумажный результат значило бы обещать прибыль, которой
-    не будет.
+    Recording it in the paper result would promise profit that won't materialize.
     """
     strategy = type("S", (), {
         "position_size_pct": Decimal("0.1"), "max_pct_per_trade": Decimal(20),
@@ -777,7 +777,7 @@ def test_amount_above_minimum_passes():
 
 
 class ClosingAdapter:
-    """Биржа, у которой на балансе меньше, чем было куплено."""
+    """An exchange whose balance holds less than was bought."""
 
     def __init__(self, free: str | None):
         self.free = Decimal(free) if free is not None else None
@@ -800,7 +800,7 @@ class ClosingAdapter:
 
 
 async def test_close_sells_only_what_is_on_balance(session, setup):
-    """Комиссию биржа удерживает монетой — купленный объём продать нельзя."""
+    """The exchange takes the fee in the coin - the purchased amount can't be sold."""
     strategy = setup["strategy"]
     strategy.is_active = True
     strategy.mode = MODE_TESTNET
@@ -830,7 +830,7 @@ async def test_close_sells_only_what_is_on_balance(session, setup):
 
 
 async def test_close_refuses_when_balance_is_empty(session, setup):
-    """Позицию продали вручную — молчать об этом нельзя."""
+    """The position was sold manually - that must not go unmentioned."""
     strategy = setup["strategy"]
     strategy.is_active = True
     strategy.mode = MODE_TESTNET
@@ -853,7 +853,7 @@ async def test_close_refuses_when_balance_is_empty(session, setup):
 
 
 async def test_close_falls_back_to_full_amount_when_balance_unknown(session, setup):
-    """Не смогли узнать остаток — пробуем закрыть, отказ попадёт в журнал."""
+    """Couldn't get the balance - try to close; a rejection will end up in the log."""
     strategy = setup["strategy"]
     strategy.is_active = True
     strategy.mode = MODE_TESTNET
@@ -875,17 +875,17 @@ async def test_close_falls_back_to_full_amount_when_balance_unknown(session, set
 
 
 async def test_signal_is_considered_once(session, setup):
-    """Иначе каждый проход пишет в журнал тот же отказ.
+    """Otherwise every pass logs the same rejection.
 
-    Сигнал остаётся свежим полчаса, фоновый процесс ходит раз в минуту —
-    получалось три десятка одинаковых строк, и единственная важная
-    терялась среди них.
+    A signal stays fresh for half an hour and the background process runs once a minute -
+    that produced thirty identical lines, and the one that mattered got lost among
+    them.
     """
     strategy = setup["strategy"]
     strategy.is_active = True
     await session.flush()
 
-    signal = make_signal(setup, direction="sell")  # отказ гарантирован
+    signal = make_signal(setup, direction="sell")  # rejection guaranteed
     session.add(signal)
     await session.flush()
 
@@ -897,12 +897,12 @@ async def test_signal_is_considered_once(session, setup):
     refusals = [e for e in entries if e.event_type == auto.EVENT_SKIPPED]
     assert len(refusals) == 3, "сам по себе execute не дедуплицирует"
 
-    # А отметка о разборе выставлена — по ней выборка и отсекает повтор.
+    # But the reviewed marker is set - the selection uses it to cut off the repeat.
     assert strategy.last_signal_id == signal.id
 
 
 async def test_watermark_only_moves_forward(session, setup):
-    """Откат назад заставил бы разбирать старое заново."""
+    """Moving back would force re-processing old signals."""
     strategy = setup["strategy"]
     strategy.last_signal_id = 100
 
@@ -914,7 +914,7 @@ async def test_watermark_only_moves_forward(session, setup):
 
 
 async def test_worker_does_not_reconsider_the_same_signal(session, setup, monkeypatch):
-    """Проверка самого исправления: повторного разбора быть не должно."""
+    """Testing the fix itself: there must be no re-processing."""
     from contextlib import asynccontextmanager
 
     from app.worker import tasks

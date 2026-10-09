@@ -1,8 +1,8 @@
 {% extends "app/base.html" %}
 {% block title %}{{ strategy.name }} — Crypto Hub{% endblock %}
 
-{# Статусы ордера: наши — по-русски, чужие (пришедшие от биржи)
-   показываем как есть, выдумывать перевод для них нечестно. #}
+{# Order statuses: ours are shown in Russian, foreign ones (coming from the exchange)
+   as is - inventing a translation for them would be dishonest. #}
 {% set order_statuses = {
   'new': 'выставлен',
   'filled': 'открыта',

@@ -1,8 +1,8 @@
-"""Данные главного экрана.
+"""Home screen data.
 
-Собирает то, что уже посчитано другими сервисами, и добавляет
-общерыночные показатели. Никаких обращений к биржам: дашборд должен
-открываться мгновенно, а свежесть обеспечивает фоновый процесс.
+Collects what other services have already computed and adds market-wide metrics. No
+exchange calls: the dashboard must open instantly, and freshness is the background
+process's job.
 """
 
 from dataclasses import dataclass
@@ -23,8 +23,8 @@ from app.models import (
 from app.models.market import MARKET_TYPE_SPOT
 from app.providers import coingecko, fear_greed
 
-# Мелочь с околонулевым оборотом даёт дикие проценты и вытесняет из
-# топа всё осмысленное.
+# Tiny coins with near-zero turnover produce wild percentages and push
+# everything meaningful out of the top.
 MIN_TURNOVER_USD = Decimal(1_000_000)
 TOP_SIZE = 5
 
@@ -46,7 +46,7 @@ async def latest_global_stats(session: AsyncSession) -> GlobalStats | None:
 
 
 async def top_movers(session: AsyncSession) -> dict[str, list[Mover]]:
-    """Топ растущих и падающих за сутки."""
+    """Top gainers and losers over 24 hours."""
     base_asset = Asset.__table__.alias("base_asset")
 
     rows = (
@@ -72,9 +72,9 @@ async def top_movers(session: AsyncSession) -> dict[str, list[Mover]]:
         )
     ).all()
 
-    # Одна монета торгуется несколькими парами и на двух биржах —
-    # DASH/USDT, DASH/USDC и так далее. В топе она нужна один раз:
-    # оставляем пару с наибольшим оборотом.
+    # One coin trades in several pairs and on two exchanges - DASH/USDT,
+    # DASH/USDC and so on. It should appear in the top once: keep the pair with
+    # the highest turnover.
     best: dict[str, tuple[Decimal, Mover]] = {}
     for symbol, exchange_code, asset_symbol, last, change, turnover in rows:
         turnover = turnover or Decimal(0)
@@ -112,10 +112,10 @@ async def recent_events(
 
 
 async def refresh_global_stats(session: AsyncSession) -> GlobalStats | None:
-    """Снять показатели рынка и индекс страха и жадности.
+    """Fetch market metrics and the Fear & Greed index.
 
-    Источники опрашиваются независимо: недоступность одного не должна
-    лишать дашборд данных другого.
+    Sources are polled independently: one being unavailable must not deprive the
+    dashboard of the other's data.
     """
     market = await coingecko.fetch_global()
     index = await fear_greed.fetch()

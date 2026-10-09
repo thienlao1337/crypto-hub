@@ -1,396 +1,377 @@
-# Архитектура Crypto Hub
+# Crypto Hub architecture
 
-Документ описывает устройство системы и причины принятых решений. Схема
-БД — раздел 3, карта модулей — раздел 4.
+This document describes how the system is built and why the decisions were made. The
+database schema is in section 3, the module map in section 4.
 
-## 1. Что за система
+## 1. What the system is
 
-Личный терминал крипто-инвестора: агрегирует портфель с Bybit и Binance,
-показывает рыночные графики с индикаторами, считает технические сигналы,
-шлёт алерты в веб и Telegram, опционально торгует по стратегии.
+A personal terminal for a crypto investor: it aggregates the portfolio from Bybit and
+Binance, shows market charts with indicators, computes technical signals, sends alerts to
+the web panel and Telegram, and optionally trades according to a strategy.
 
-Четыре процесса поверх одной базы:
+Four processes on top of one database:
 
-| Процесс | Роль |
+| Process | Role |
 |---|---|
-| `web` | Веб-панель и её WebSocket-каналы. Основная ценность продукта. |
-| `bot` | Telegram-бот — зеркало веб-функций и канал доставки уведомлений. |
-| `worker` | Фоновые задачи: синхронизация бирж, свечи, сигналы, алерты, автотрейдинг. |
-| `db` | PostgreSQL — единственное общее состояние. |
+| `web` | The web panel and its WebSocket channels. The core value of the product. |
+| `bot` | Telegram bot - a mirror of the web features and a notification delivery channel. |
+| `worker` | Background jobs: exchange sync, candles, signals, alerts, auto-trading. |
+| `db` | PostgreSQL - the only shared state. |
 
-Бизнес-логика живёт в `app/services/` и вызывается из всех трёх процессов.
-Роутеры и хендлеры тонкие: принимают ввод, валидируют, зовут сервис.
+Business logic lives in `app/services/` and is called from all three application
+processes. Routers and handlers are thin: they take input, validate it and call a
+service.
 
-## 2. Ключевые решения
+## 2. Key decisions
 
-### 2.1 Реалтайм без брокера сообщений
+### 2.1 Real-time without a message broker
 
-Потоки данных разделены по частоте, и способ доставки у них разный.
+Data streams are split by frequency, and each has its own delivery method.
 
-**Высокочастотные** — стакан и лента сделок. Мультиплексор
-WebSocket-подписок внутри `web`: на пару и канал держится одна подписка к
-бирже независимо от числа открытых вкладок, клиенты подключаются к
-нашему WS и получают широковещательную рассылку. Здесь без WebSocket не
-обойтись — обновления идут по несколько раз в секунду.
+**High-frequency** - the order book and trade feed. A WebSocket subscription multiplexer
+inside `web`: one subscription to the exchange is kept per pair and channel regardless of
+the number of open tabs, and clients connect to our WS and receive a broadcast.
+WebSocket is unavoidable here - updates come several times a second.
 
-**Редкие** — сработавший алерт или новый сигнал. Они рождаются в
-`worker` и складываются в `notifications`. Дальше — два независимых
-пути: открытая вкладка забирает их обычным опросом раз в полминуты, а
-закрытый браузер получает веб-пуш. Держать ради нескольких событий в
-день ещё один канал между процессами незачем: опрос дешевле и проще в
-поддержке, а пуш всё равно идёт наружу, к push-сервису браузера.
+**Rare** - a triggered alert or a new signal. They originate in `worker` and are stored in
+`notifications`. From there, two independent paths: an open tab picks them up with
+regular polling every thirty seconds, and a closed browser gets a web push. There's no
+point keeping another inter-process channel for a few events a day: polling is cheaper
+and easier to maintain, and push goes outside anyway, to the browser's push service.
 
-Redis не введён намеренно. Он понадобился бы, чтобы разделить состояние
-между несколькими экземплярами `web`, но на профиле нагрузки этого
-продукта (десятки пользователей) один процесс справляется, а лишний
-контейнер — ещё одна вещь, которая ломается в проде у клиента.
+Redis was deliberately not introduced. It would be needed to share state between several
+`web` instances, but at this product's load profile (dozens of users) one process copes
+fine, and an extra container is one more thing that can break in the client's
+production.
 
-Если события станут частыми или экземпляров `web` станет больше, точка
-расширения известна: опрос счётчика меняется на `LISTEN/NOTIFY`
-PostgreSQL или на pub/sub, а сервисы при этом не меняются — они и сейчас
-только пишут в `notifications`.
+If events become frequent or there are more `web` instances, the extension point is
+known: counter polling is replaced with PostgreSQL `LISTEN/NOTIFY` or pub/sub, and the
+services don't change - they already only write to `notifications`.
 
-### 2.2 Один клиент к двум биржам
+### 2.2 One client for two exchanges
 
-Bybit и Binance подключены через `ccxt`: унифицированные символы,
-единый интерфейс балансов, ордеров и свечей, готовый sandbox-режим для
-testnet. Альтернатива — родные SDK каждой биржи — означала бы две разные
-модели данных и двойную работу в каждой фиче.
+Bybit and Binance are connected via `ccxt`: unified symbols, one interface for balances,
+orders and candles, a ready-made sandbox mode for testnet. The alternative - each
+exchange's native SDK - would mean two different data models and double work in every
+feature.
 
-Одна и та же пара на разных биржах — **две записи** в `markets`. Так
-устроено сравнение бирж из ТЗ: расхождение цены и спреда считается между
-двумя строками, а не внутри одной.
+The same pair on different exchanges is **two rows** in `markets`. That's how the
+exchange comparison from the spec works: price and spread differences are computed
+between two rows, not within one.
 
-### 2.3 Деньги только в Numeric
+### 2.3 Money only in Numeric
 
-Все количества, цены и оценки — `Numeric`, никогда `float`. Накопленная
-ошибка округления на балансах и PnL даёт расхождение с отчётом биржи,
-которое невозможно объяснить пользователю. Точности заданы в
-`app/models/types.py` в одном месте.
+All quantities, prices and valuations are `Numeric`, never `float`. Accumulated rounding
+error on balances and PnL produces a mismatch with the exchange report that can't be
+explained to the user. Precisions are defined in one place, `app/models/types.py`.
 
-### 2.4 История вместо перезаписи
+### 2.4 History instead of overwriting
 
-Значимые события пишутся отдельными записями: `login_events`,
-`audit_log`, `alert_triggers`, `signal_outcomes`, `bot_journal`,
-`portfolio_snapshots`. Перезаписываются только срезы «сейчас» —
-`balances`, `positions`, `market_tickers`, — и для каждого из них история
-ведётся в своей таблице.
+Significant events are written as separate rows: `login_events`, `audit_log`,
+`alert_triggers`, `signal_outcomes`, `bot_journal`, `portfolio_snapshots`. Only "now"
+snapshots are overwritten - `balances`, `positions`, `market_tickers` - and each of them
+has its history kept in its own table.
 
-Снимок портфеля хранит `breakdown` целиком, чтобы график за прошлый месяц
-не пересчитывался задним числом по сегодняшним ценам.
+A portfolio snapshot stores the whole `breakdown`, so last month's chart isn't
+recomputed retroactively at today's prices.
 
-### 2.5 Справочники в базе
+### 2.5 Reference data in the database
 
-Редактируются из админки, а не зашиты в enum: `exchanges`, `timeframes`,
-`alert_types`. Роли пользователей (`owner` / `user`) намеренно оставлены
-строкой в коде — это уровни доступа, завязанные на проверки, а не
-бизнес-справочник.
+Edited from the admin panel rather than hard-coded as enums: `exchanges`, `timeframes`,
+`alert_types`. User roles (`owner` / `user`) are deliberately left as a string in code -
+they are access levels tied to checks, not business reference data.
 
-Параметры индикаторов в `signal_rules.config` лежат словарём JSON:
-по ТЗ набор индикаторов должен расширяться без миграции схемы.
+Indicator parameters in `signal_rules.config` are stored as a JSON dict: per the spec,
+the indicator set must grow without schema migrations.
 
-## 3. Схема БД
+## 3. Database schema
 
-### Пользователи и доступ
+### Users and access
 
-| Таблица | Назначение |
+| Table | Purpose |
 |---|---|
-| `users` | Аккаунт, роль, 2FA-секрет, привязка Telegram, предпочтения |
-| `user_recovery_codes` | Одноразовые коды на случай потери 2FA-устройства (хранятся хешами) |
-| `invites` | Приглашения: регистрация закрытая, коды выдаёт владелец |
-| `login_events` | История входов, включая неудачные попытки |
-| `audit_log` | Действия над значимыми сущностями: ключи, права, режимы стратегий |
+| `users` | Account, role, 2FA secret, Telegram link, preferences |
+| `user_recovery_codes` | Single-use codes in case the 2FA device is lost (stored as hashes) |
+| `invites` | Invites: registration is closed, codes are issued by the owner |
+| `login_events` | Login history, including failed attempts |
+| `audit_log` | Actions on significant entities: keys, permissions, strategy modes |
 
-### Биржи
+### Exchanges
 
-| Таблица | Назначение |
+| Table | Purpose |
 |---|---|
-| `exchanges` | Справочник бирж |
-| `exchange_accounts` | Подключённый ключ: шифрованные key/secret, маска, статус проверки, права |
+| `exchanges` | Exchange reference table |
+| `exchange_accounts` | A connected key: encrypted key/secret, mask, check status, permissions |
 
-В `exchange_accounts` два флага прав: `requested_trading` — чего хотел
-пользователь, `allow_trading` — что подтвердила биржа при проверке ключа.
-Торговля возможна, только когда истинны оба и статус ключа `ok`.
+`exchange_accounts` has two permission flags: `requested_trading` - what the user asked
+for, `allow_trading` - what the exchange confirmed when the key was checked. Trading is
+possible only when both are true and the key status is `ok`.
 
-### Рынок
+### Market
 
-| Таблица | Назначение |
+| Table | Purpose |
 |---|---|
-| `assets` | Монета сама по себе, вне пары и биржи |
-| `markets` | Торговая пара на конкретной бирже |
-| `timeframes` | Справочник таймфреймов |
-| `candles` | OHLCV; только по парам из watchlist и правил сигналов |
-| `market_tickers` | Срез «сейчас» на пару: last/bid/ask, изменение за 24ч |
-| `global_stats` | Снимки капитализации, доминации и индекса страха и жадности |
+| `assets` | A coin on its own, outside any pair or exchange |
+| `markets` | A trading pair on a specific exchange |
+| `timeframes` | Timeframe reference table |
+| `candles` | OHLCV; only for pairs from watchlists and signal rules |
+| `market_tickers` | "Now" snapshot per pair: last/bid/ask, 24h change |
+| `global_stats` | Snapshots of market cap, dominance and the Fear & Greed index |
 
-`market_tickers` существует, чтобы бот и движок алертов не дёргали биржу
-на каждый запрос. `global_stats` хранится историей, потому что источник
-индекса отдаёт только текущее значение, а на виджете нужна динамика.
+`market_tickers` exists so the bot and the alert engine don't hit the exchange on every
+request. `global_stats` is kept as history because the index source only returns the
+current value, while the widget needs the trend.
 
-### Портфель
+### Portfolio
 
-| Таблица | Назначение |
+| Table | Purpose |
 |---|---|
-| `balances` | Текущий баланс монеты на аккаунте биржи |
-| `portfolio_snapshots` | Точки графика стоимости портфеля во времени |
-| `trades` | Исполненные сделки, поднятые из истории биржи |
-| `positions` | Открытые позиции и нереализованный PnL |
-| `watchlist_items` | Личный список отслеживания |
+| `balances` | Current balance of a coin on an exchange account |
+| `portfolio_snapshots` | Portfolio value chart points over time |
+| `trades` | Executed trades pulled from the exchange history |
+| `positions` | Open positions and unrealized PnL |
+| `watchlist_items` | Personal watchlist |
 
-Уникальность `trades` по паре (аккаунт, внешний id сделки) делает
-повторную синхронизацию идемпотентной.
+Uniqueness of `trades` on the pair (account, external trade id) makes re-syncing
+idempotent.
 
-Средняя цена входа для спота собирается из `trades` — проходом от
-старых сделок к новым с усреднением по стоимости. Тот же проход
-заполняет `trades.realized_pnl` у продаж. Пересчёт всегда полный, а не
-приращением: досинхронизация приносит сделки задним числом, и одна такая
-меняет среднюю цену всей последующей цепочки.
+The average entry price for spot is built from `trades` - walking from the oldest trades
+to the newest with cost averaging. The same pass fills `trades.realized_pnl` for sales.
+The recalculation is always full, never incremental: a catch-up sync brings in
+backdated trades, and a single one changes the average price of the whole chain after
+it.
 
-Биржи отдают ограниченный период истории, поэтому у позиции есть флаг
-`cost_basis_complete`. Он снимается в двух случаях: продажа встретилась
-без покупки или на балансе монеты заметно больше, чем объясняют сделки.
-В обоих интерфейс показывает цифру с оговоркой, а не выдаёт
-приблизительное за точное.
+Exchanges return a limited history period, so a position has a `cost_basis_complete`
+flag. It is cleared in two cases: a sale appeared without a purchase, or the balance
+holds noticeably more of the coin than the trades explain. In both cases the UI shows the
+number with a caveat instead of passing off an approximation as exact.
 
-Переоценка (`mark_price`, `unrealized_pnl`) идёт вместе с обновлением
-котировок, а не отдельной задачей: цена входа и цена «сейчас» должны
-быть из одного среза, иначе PnL показывает разницу между разными
-моментами времени.
+Revaluation (`mark_price`, `unrealized_pnl`) happens together with the quote refresh,
+not as a separate job: the entry price and the "now" price must come from the same
+snapshot, otherwise PnL shows the difference between different moments in time.
 
-### Сигналы
+### Signals
 
-| Таблица | Назначение |
+| Table | Purpose |
 |---|---|
-| `signal_rules` | Правило: пара, таймфрейм, параметры индикаторов, горизонт оценки |
-| `signals` | Сработавший сигнал: направление, цена, обоснование, значения индикаторов |
-| `signal_outcomes` | Что стало с ценой через горизонт — материал для статистики точности |
+| `signal_rules` | A rule: pair, timeframe, indicator parameters, scoring horizon |
+| `signals` | A fired signal: direction, price, justification, indicator values |
+| `signal_outcomes` | What happened to the price after the horizon - material for accuracy statistics |
 
-`signals.reason` хранит человеческое объяснение, `indicators` — значения
-на момент срабатывания. По ТЗ карточка сигнала обязана объяснять, почему
-он появился, а не просто говорить «buy».
+`signals.reason` stores a human-readable explanation, `indicators` the values at the
+moment it fired. Per the spec, a signal card must explain why it appeared, not just say
+"buy".
 
-`candle_time` защищает от повторной выдачи того же сигнала на следующем
-проходе движка.
+`candle_time` protects against issuing the same signal again on the engine's next pass.
 
-### Алерты и уведомления
+### Alerts and notifications
 
-| Таблица | Назначение |
+| Table | Purpose |
 |---|---|
-| `alert_types` | Справочник: цена выше/ниже, изменение в %, RSI |
-| `alerts` | Условие, каналы доставки, cooldown, лимиты срабатываний |
-| `alert_triggers` | Факты срабатывания и результат доставки |
-| `notifications` | Лента панели и очередь доставки в остальные каналы |
-| `notification_settings` | Что и куда слать |
-| `push_subscriptions` | Подписки браузеров на веб-пуш, по одной на устройство |
+| `alert_types` | Reference table: price above/below, % change, RSI |
+| `alerts` | Condition, delivery channels, cooldown, trigger limits |
+| `alert_triggers` | Trigger events and delivery results |
+| `notifications` | The panel feed and the delivery queue for other channels |
+| `notification_settings` | What to send and where |
+| `push_subscriptions` | Browser web-push subscriptions, one per device |
 
-`cooldown_seconds` обязателен: без него алерт «цена выше X» звонил бы на
-каждой проверке, пока цена держится выше уровня. `trigger_limit` и
-`expires_at` ограничивают жизнь алерта: лимит считается за всё время, а
-не от последней правки, потому что `trigger_count` сходится с записями в
-`alert_triggers`.
+`cooldown_seconds` is mandatory: without it a "price above X" alert would fire on every
+check while the price stays above the level. `trigger_limit` and `expires_at` limit the
+alert's lifetime: the limit is counted over all time, not from the last edit, because
+`trigger_count` matches the rows in `alert_triggers`.
 
-Время везде хранится в UTC, а показывается в поясе пользователя
-(`users.timezone`). Перевод живёт в `services/localtime.py` — общий и для
-панели, и для бота: две разные реализации разошлись бы, и время в чате
-перестало бы совпадать со временем на сайте.
+Time is stored in UTC everywhere and shown in the user's time zone (`users.timezone`).
+The conversion lives in `services/localtime.py`, shared by the panel and the bot: two
+separate implementations would drift apart, and the time in the chat would stop matching
+the time on the site.
 
-`notifications` — одновременно лента и очередь: `show_web` говорит,
-показывать ли запись в панели, `delivered_telegram` и `delivered_push` —
-ушла ли она в соответствующий канал. Решение о каналах принимается один
-раз, при записи: если бы каждый отправщик перепроверял настройки сам,
-«выключено» означало бы разное в разных местах. Веб-пуш привязан к
-`show_web` — это не отдельное событие, а способ донести до браузера то,
-что и так попало бы в ленту.
+`notifications` is both a feed and a queue: `show_web` says whether to show the row in
+the panel, `delivered_telegram` and `delivered_push` whether it went out to the
+corresponding channel. The channel decision is made once, at recording time: if every
+sender re-checked the settings on its own, "disabled" would mean different things in
+different places. Web push is tied to `show_web` - it isn't a separate event, but a way
+to bring to the browser what would have landed in the feed anyway.
 
-### Автотрейдинг
+### Auto-trading
 
-| Таблица | Назначение |
+| Table | Purpose |
 |---|---|
-| `strategies` | Сигнал → размер позиции → SL/TP, режим, лимиты риска |
-| `bot_orders` | Позиции бота: вход, уровни выхода, цена выхода, результат |
-| `bot_journal` | Журнал всех действий бота |
-| `risk_state` | Дневной результат и флаг остановки по лимиту убытка |
+| `strategies` | Signal -> position size -> SL/TP, mode, risk limits |
+| `bot_orders` | Bot positions: entry, exit levels, exit price, result |
+| `bot_journal` | Log of all bot actions |
+| `risk_state` | Daily result and the stop flag for the loss limit |
 
-Одна строка `bot_orders` описывает позицию целиком: открытие заводит
-запись, закрытие проставляет ей `close_price`, `realized_pnl` и
-`closed_at`. Вход и выход двумя записями пришлось бы сшивать обратно при
-каждом показе.
+One `bot_orders` row describes the whole position: opening creates the row, closing
+fills in its `close_price`, `realized_pnl` and `closed_at`. Entry and exit as two rows
+would have to be stitched back together every time they're shown.
 
-Стратегия держит не больше одной позиции — она работает на споте, где
-продажа при пустой позиции означает продажу монет самого пользователя.
-Выход происходит по стоп-лоссу, тейк-профиту или обратному сигналу;
-уровни проверяются каждым проходом фонового процесса, а не только при
-новом сигнале.
+A strategy holds at most one position - it trades spot, where selling with no open
+position means selling the user's own coins. Exits happen on stop-loss, take-profit or an
+opposite signal; levels are checked on every background pass, not only on a new signal.
 
-Результат сделки попадает в `risk_state` в долях депозита, а не позиции:
-дневной лимит убытка в ТЗ — доля депозита, и стоп в 2% на позиции
-размером в 10% стоит 0.2%.
+A trade result goes into `risk_state` as a share of the deposit, not of the position: the
+daily loss limit in the spec is a share of the deposit, and a 2% stop on a position worth
+10% costs 0.2%.
 
-Режим (`paper` / `testnet` / `live`) записывается в каждый ордер отдельно:
-режим стратегии может измениться позже, а по журналу должно быть видно,
-чем сделка была в момент исполнения.
+The mode (`paper` / `testnet` / `live`) is recorded on each order separately: the
+strategy's mode may change later, and the log must show what the trade was at the moment
+of execution.
 
-Перевод стратегии в `live` требует записанного `live_confirmed_at` —
-времени явного подтверждения. Одного чекбокса для реальных денег мало.
+Switching a strategy to `live` requires a recorded `live_confirmed_at` - the time of
+explicit confirmation. A single checkbox isn't enough for real money.
 
 ### P2P
 
-| Таблица | Назначение |
+| Table | Purpose |
 |---|---|
-| `p2p_ads` | Зеркало наших объявлений: цена, объём, лимиты, состояние |
-| `p2p_price_rules` | Правило: место в списке, шаг обхода, коридор, фильтры соседей |
-| `p2p_price_events` | Что правило решило и почему — включая решение не двигать |
-| `p2p_orders` | Заказы по объявлениям (пока только зеркало состояния) |
+| `p2p_ads` | Mirror of our ads: price, amount, limits, state |
+| `p2p_price_rules` | A rule: position in the list, outbid step, corridor, neighbour filters |
+| `p2p_price_events` | What the rule decided and why - including the decision not to move |
+| `p2p_orders` | Orders on ads (for now only a mirror of their state) |
 
-Право на P2P — отдельные флаги у ключа биржи (`requested_p2p`,
-`allow_p2p`), по тому же принципу, что и право на торговлю: чего хотел
-пользователь и что подтвердила площадка. Отдельные потому, что
-P2P-эндпоинты закрыты до статуса рекламодателя или мерчанта, и ключ с
-правом спотовой торговли доступа к объявлениям не даёт.
+P2P permission is a separate pair of flags on the exchange key (`requested_p2p`,
+`allow_p2p`), on the same principle as trading permission: what the user asked for and
+what the marketplace confirmed. Separate because P2P endpoints are closed until
+advertiser or merchant status is granted, and a key with spot trading permission gives
+no access to ads.
 
-Расчёт цены живёт в `services/p2p_pricing.py` и не знает ни про базу, ни
-про сеть — как индикаторы. Опора коридора — медиана доски: спотовой пары
-USDT/RUB не существует, а медиана есть всегда и устойчива к чужому боту,
-который тянет вниз хвост доски.
+Price calculation lives in `services/p2p_pricing.py` and knows nothing about the
+database or the network - just like the indicators. The corridor's anchor is the board
+median: there's no USDT/RUB spot pair, but a median always exists and is resistant to
+someone else's bot pulling down the tail of the board.
 
-`ccxt` для P2P не годится: это доска объявлений со своими эндпоинтами,
-своей подписью и своей моделью данных, поэтому в `exchanges/p2p/` свой
-протокол и по реализации на площадку. Разбор ответов намеренно
-нетерпимый — нет поля с ценой, поднимается ошибка с его именем: по этим
-числам бот двигает цену, и молчаливый ноль хуже отказа.
+`ccxt` doesn't fit P2P: it's an ad board with its own endpoints, its own signing and its
+own data model, so `exchanges/p2p/` has its own protocol and one implementation per
+marketplace. Response parsing is deliberately strict - if the price field is missing, an
+error naming it is raised: the bot moves the price based on these numbers, and a silent
+zero is worse than a failure.
 
-## 4. Карта модулей
+## 4. Module map
 
 ```
 app/
-  config.py            настройки из окружения (pydantic-settings)
-  db.py                ленивый движок, фабрика сессий, Base
-  models/              ORM по доменам + types.py с общими типами колонок
+  config.py            settings from the environment (pydantic-settings)
+  db.py                lazy engine, session factory, Base
+  models/              ORM by domain + types.py with shared column types
   exchanges/
-    base.py            общий интерфейс адаптера и типы данных
-    ccxt_client.py     REST поверх ccxt.async_support
-    ws_hub.py          мультиплексор WebSocket-подписок
+    base.py            common adapter interface and data types
+    ccxt_client.py     REST on top of ccxt.async_support
+    ws_hub.py          WebSocket subscription multiplexer
   providers/
-    coingecko.py       капитализация и доминация
-    fear_greed.py      индекс страха и жадности
+    coingecko.py       market cap and dominance
+    fear_greed.py      Fear & Greed index
   services/
     security.py        Fernet, bcrypt, TOTP
-    user_service.py    аккаунты, вход, 2FA, привязка Telegram
-    invite_service.py  приглашения
-    audit_service.py   журнал действий и входов
-    exchange_keys_service.py   ключи бирж
-    market_service.py  пары, котировки, оценка в долларах
-    candle_service.py  свечи и ряды индикаторов для графика
-    portfolio_service.py       балансы, оценка, снимки, сделки
-    position_service.py        средняя цена входа, нереализованный PnL
-    indicators.py      EMA, SMA, RSI, MACD, Bollinger — чистые функции
-    signal_service.py  правила, сигналы, статистика точности
-    alert_service.py   условия, срабатывания, доставка в ленту
-    notification_service.py    лента уведомлений и выбор каналов
-    webpush.py         подписки браузеров и отправка веб-пуша
-    watchlist_service.py       список отслеживания
-    dashboard_service.py       данные главного экрана
-    tools_service.py   конвертер и калькулятор сделки
-    autotrade_service.py       стратегии, исполнение, лимиты риска
-    p2p_pricing.py     расчёт цены объявления — чистые функции
-    p2p_service.py     объявления, правила, журнал P2P
+    user_service.py    accounts, login, 2FA, Telegram linking
+    invite_service.py  invites
+    audit_service.py   action and login log
+    exchange_keys_service.py   exchange keys
+    market_service.py  pairs, quotes, dollar valuation
+    candle_service.py  candles and indicator series for the chart
+    portfolio_service.py       balances, valuation, snapshots, trades
+    position_service.py        average entry price, unrealized PnL
+    indicators.py      EMA, SMA, RSI, MACD, Bollinger - pure functions
+    signal_service.py  rules, signals, accuracy statistics
+    alert_service.py   conditions, triggers, delivery to the feed
+    notification_service.py    notification feed and channel selection
+    webpush.py         browser subscriptions and sending web push
+    watchlist_service.py       watchlist
+    dashboard_service.py       home screen data
+    tools_service.py   converter and trade calculator
+    autotrade_service.py       strategies, execution, risk limits
+    p2p_pricing.py     ad price calculation - pure functions
+    p2p_service.py     P2P ads, rules, log
   web/
-    main.py            приложение, middleware, обработчики ошибок
-    auth.py            сессия, CSRF, проверки доступа
-    flash.py           сообщения между запросами
-    templates_env.py   Jinja2, фильтры форматирования, версия статики
-    routers/           экраны панели
+    main.py            application, middleware, error handlers
+    auth.py            session, CSRF, access checks
+    flash.py           messages between requests
+    templates_env.py   Jinja2, formatting filters, static version
+    routers/           panel screens
   bot/
-    main.py            запуск и диспетчер
-    middlewares.py     сессия БД, пользователь, обработка ошибок
-    formatting.py      разбор команд и оформление ответов
-    handlers/          команды
+    main.py            startup and dispatcher
+    middlewares.py     DB session, user, error handling
+    formatting.py      command parsing and reply formatting
+    handlers/          commands
   worker/
-    main.py            планировщик APScheduler
-    tasks.py           синхронизация, свечи, сигналы, алерты, автотрейдинг
-    delivery.py        отправка уведомлений в Telegram
+    main.py            APScheduler scheduler
+    tasks.py           sync, candles, signals, alerts, auto-trading
+    delivery.py        sending notifications to Telegram
 ```
 
-Индикаторы реализованы своими функциями на pandas вместо готовой
-библиотеки: это около сотни строк, зато без зависимости, которая
-регулярно отстаёт от новых версий pandas, и с юнит-тестами на эталонных
-значениях.
+Indicators are implemented as our own pandas functions instead of a ready-made library:
+it's about a hundred lines, but without a dependency that regularly lags behind new
+pandas versions, and with unit tests on reference values.
 
-## 5. Фоновые задачи
+## 5. Background jobs
 
-| Задача | Интервал по умолчанию | Что делает |
+| Job | Default interval | What it does |
 |---|---|---|
-| `sync_balances` | 60 с | Балансы по всем активным ключам |
-| `sync_trades` | 5 мин | Догрузка новой истории сделок |
-| `poll_candles` | 30 с | Свечи по парам из watchlist и правил |
-| `evaluate_alerts` | 15 с | Проверка условий, доставка, запись срабатываний |
-| `evaluate_signals` | 60 с | Расчёт индикаторов, выдача сигналов |
-| `snapshot_portfolio` | 15 мин | Точка на графике стоимости |
-| `refresh_global_stats` | 5 мин | CoinGecko и индекс страха и жадности |
-| `evaluate_outcomes` | 15 мин | Оценка сигналов по истечении горизонта |
-| `autotrade_loop` | 60 с | Исполнение стратегий (только при включённом рубильнике) |
+| `sync_balances` | 60 s | Balances for all active keys |
+| `sync_trades` | 5 min | Backfill of new trade history |
+| `poll_candles` | 30 s | Candles for pairs from watchlists and rules |
+| `evaluate_alerts` | 15 s | Condition checks, delivery, recording triggers |
+| `evaluate_signals` | 60 s | Indicator calculation, issuing signals |
+| `snapshot_portfolio` | 15 min | A point on the value chart |
+| `refresh_global_stats` | 5 min | CoinGecko and the Fear & Greed index |
+| `evaluate_outcomes` | 15 min | Scoring signals once their horizon has passed |
+| `autotrade_loop` | 60 s | Running strategies (only with the kill switch on) |
 
-Интервалы настраиваются через окружение. Внешние источники вызываются с
-кэшем и экспоненциальной паузой при ответе 429 — публичные тиры CoinGecko
-и бирж имеют жёсткие лимиты.
+Intervals are configured via the environment. External sources are called with caching
+and exponential backoff on a 429 response - the public tiers of CoinGecko and the
+exchanges have strict limits.
 
-## 6. Модель безопасности
+## 6. Security model
 
-- **Ключи бирж** шифруются Fernet-ключом из `ENCRYPTION_KEY`. В открытом
-  виде не логируются и в шаблоны не передаются: интерфейс получает только
-  `api_key_masked`. Дамп базы без `ENCRYPTION_KEY` бесполезен для доступа
-  к биржевым аккаунтам — поэтому ключ хранится отдельно от бэкапа.
-- **Права ключа** проверяются у биржи, а не берутся со слов пользователя.
-  Режим «только чтение» — рекомендуемый и стоящий по умолчанию.
-- **Пароли** — bcrypt напрямую, без passlib (обоснование в README).
-- **2FA** — TOTP, секрет шифруется тем же механизмом, что и ключи бирж;
-  коды восстановления хранятся хешами и гасятся при использовании.
-- **Изоляция данных** между пользователями делается на уровне сервисов,
-  а не роутеров: фильтр по `user_id` в запросе, а не проверка в шаблоне.
-- **Сессии** — подписанная cookie (Starlette SessionMiddleware),
-  `https_only` вне режима отладки.
-- **Автотрейдинг** выключен глобальным рубильником, стартует в `paper`,
-  реальные сделки требуют и отметки согласия, и подтверждённого самой
-  биржей права на торговлю; ключ от тестовой сети в live не пускается.
-  Лимит дневного убытка останавливает стратегию автоматически, снять
-  остановку может только человек.
+- **Exchange keys** are encrypted with the Fernet key from `ENCRYPTION_KEY`. They are
+  never logged or passed to templates in plain text: the UI only gets `api_key_masked`.
+  A database dump without `ENCRYPTION_KEY` is useless for accessing exchange accounts -
+  which is why the key is stored separately from backups.
+- **Key permissions** are verified with the exchange, not taken from the user's word.
+  Read-only mode is the recommended default.
+- **Passwords** - bcrypt directly, without passlib (rationale in the README).
+- **2FA** - TOTP; the secret is encrypted the same way as exchange keys; recovery codes
+  are stored as hashes and invalidated on use.
+- **Data isolation** between users is done at the service level, not in routers: a
+  `user_id` filter in the query, not a check in the template.
+- **Sessions** - a signed cookie (Starlette SessionMiddleware), `https_only` outside
+  debug mode.
+- **Auto-trading** is disabled by a global kill switch and starts in `paper`; live trades
+  require both a consent checkbox and trading permission confirmed by the exchange
+  itself; a testnet key isn't allowed into live. The daily loss limit stops the strategy
+  automatically, and only a person can lift the stop.
 
-## 7. Правила, выведенные из практики
+## 7. Lessons learned in practice
 
-Несколько вещей всплыли уже во время разработки и стоили отладки — они
-записаны здесь, чтобы не наступить на них снова.
+A few things came up during development and cost some debugging - they're written down
+here so we don't step on them again.
 
-**После `session.rollback()` нельзя трогать загруженные объекты.** Откат
-помечает их протухшими, и обращение к любому полю — вплоть до `id` в
-строке журнала — тянет SELECT из синхронного кода, что в асинхронном
-SQLAlchemy падает с `MissingGreenlet`. Поэтому формы после ошибки
-перенаправляют, а не отрисовываются заново, а фоновые задачи берут свою
-сессию на каждую единицу работы.
+**Don't touch loaded objects after `session.rollback()`.** A rollback marks them as
+expired, and accessing any field - down to the `id` in a log line - triggers a SELECT
+from synchronous code, which fails with `MissingGreenlet` in async SQLAlchemy. That's why
+forms redirect after an error instead of re-rendering, and background jobs take their
+own session for each unit of work.
 
-**Тесты идут на PostgreSQL, а не на SQLite.** На SQLite тип `Numeric`
-хранится как float, и `1234.56` читается обратно как
-`1234.559999999999945430`. Для продукта, который считает деньги, такой
-стенд бесполезен.
+**Tests run on PostgreSQL, not SQLite.** SQLite stores the `Numeric` type as float, and
+`1234.56` is read back as `1234.559999999999945430`. For a product that handles money,
+such a test bed is useless.
 
-**`now()` в PostgreSQL — время начала транзакции.** События одного
-запроса получают одинаковую метку, поэтому отсечки по времени внутри
-транзакции неоднозначны; там, где важен порядок, используется
-идентификатор.
+**`now()` in PostgreSQL is the transaction start time.** Events from one request get the
+same timestamp, so time cutoffs within a transaction are ambiguous; where order matters,
+the id is used.
 
-**Точность типов проверяется на живых данных.** Капитализация всего
-рынка не влезла в `Numeric(20, 8)` — переполнение вылезло только при
-первом реальном запросе к CoinGecko.
+**Type precision is checked on live data.** The total market cap didn't fit into
+`Numeric(20, 8)` - the overflow only surfaced on the first real request to CoinGecko.
 
-## 8. Порядок реализации
+## 8. Implementation order
 
-Соответствовал приоритетам ТЗ: сначала то, что полезно и безопасно.
+It followed the priorities of the spec: useful and safe things first.
 
-1. Каркас: конфиг, БД, миграции, Docker — **готово**
-2. Аутентификация, инвайты, 2FA, справочники — **готово**
-3. Подключение бирж, синхронизация, портфель — **готово**
-4. Рынок: свечи, график, индикаторы, стакан, лента, сравнение — **готово**
-5. Сигналы, алерты, worker — **готово**
-6. Telegram-бот — **готово**
-7. Инструменты и дашборд — **готово**
-8. Автотрейдинг — **готово**
-9. Прод-деплой и приёмка — **деплой готов, приёмка за клиентом**
+1. Skeleton: config, database, migrations, Docker - **done**
+2. Authentication, invites, 2FA, reference data - **done**
+3. Exchange connections, sync, portfolio - **done**
+4. Market: candles, chart, indicators, order book, trade feed, comparison - **done**
+5. Signals, alerts, worker - **done**
+6. Telegram bot - **done**
+7. Tools and dashboard - **done**
+8. Auto-trading - **done**
+9. Production deployment and acceptance - **deployment ready, acceptance is up to the client**

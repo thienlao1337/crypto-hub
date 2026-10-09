@@ -1,8 +1,8 @@
 """push subscriptions
 
-Подписки браузеров на веб-пуш и отметка о доставке. Пуш идёт по тому же
-признаку show_web, что и лента: это не отдельное событие, а способ
-донести до браузера то, что и так попало бы в ленту.
+Browser web-push subscriptions and a delivery marker. Push follows the same show_web
+flag as the feed: it isn't a separate event, just a way to bring to the browser what
+would have landed in the feed anyway.
 
 Revision ID: 0008
 Revises: 0007
@@ -43,14 +43,14 @@ def upgrade() -> None:
         sa.UniqueConstraint('endpoint'),
     )
 
-    # Старые уведомления пушем не отправляем: пользователь получил бы
-    # пачку сообщений о том, что случилось до подписки. Поэтому true.
+    # Old notifications are not pushed: the user would get a batch of messages
+    # about things that happened before subscribing. Hence true.
     op.add_column(
         'notifications',
         sa.Column('delivered_push', sa.Boolean(), nullable=False, server_default=sa.true()),
     )
-    # Значение по умолчанию нужно было только для заполнения старых строк:
-    # дальше его проставляет приложение, как и у delivered_telegram.
+    # The default was only needed to fill existing rows: from now on the
+    # application sets the value, same as delivered_telegram.
     op.alter_column('notifications', 'delivered_push', server_default=None)
 
 

@@ -11,18 +11,18 @@ from app.web import flash
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
 
-# Тонкий неразрывный пробел: разряды видно, а перенос строки посреди
-# числа невозможен.
+# Thin non-breaking space: digit groups are visible, and a line break in the
+# middle of a number is impossible.
 GROUP_SEPARATOR = " "
 DASH = "—"
 
 
 def format_amount(value, max_decimals: int = 8) -> str:
-    """Количество монет в человеческом виде.
+    """A coin amount in human-readable form.
 
-    Decimal.normalize() сам по себе выдаёт 1.5E+8 — в таблице портфеля
-    это читается как ошибка. Здесь всегда позиционная запись, без хвоста
-    незначащих нулей и с разделением разрядов.
+    Decimal.normalize() on its own produces 1.5E+8 - in the portfolio table that reads
+    as an error. Here it's always positional notation, without trailing insignificant
+    zeros and with digit grouping.
     """
     if value is None:
         return DASH
@@ -31,9 +31,9 @@ def format_amount(value, max_decimals: int = 8) -> str:
     except (InvalidOperation, TypeError, ValueError):
         return DASH
 
-    # У монет вроде BABYDOGE цена меньше 1e-8, и жёсткие восемь знаков
-    # после запятой превращали бы её в ноль. Для значений меньше единицы
-    # считаем не знаки после запятой, а значащие цифры.
+    # Coins like BABYDOGE have prices below 1e-8, and a fixed eight decimal
+    # places would turn them into zero. For values below one we count
+    # significant digits instead of decimal places.
     if number != 0 and abs(number) < 1:
         leading_zeros = -number.adjusted() - 1
         max_decimals = min(18, max(max_decimals, leading_zeros + 4))
@@ -47,10 +47,10 @@ def format_amount(value, max_decimals: int = 8) -> str:
 
 
 def format_usd(value, decimals: int = 2, *, signed: bool = False) -> str:
-    """Сумма в долларах. signed нужен там, где важен знак прибыли.
+    """An amount in dollars. signed is used where the sign of profit matters.
 
-    Для PnL плюс не менее содержателен, чем минус: «$120» и «+$120»
-    читаются по-разному, когда рядом в колонке стоят убытки.
+    For PnL a plus is as informative as a minus: "$120" and "+$120" read differently
+    when there are losses next to them in the column.
     """
     if value is None:
         return DASH
@@ -60,19 +60,18 @@ def format_usd(value, decimals: int = 2, *, signed: bool = False) -> str:
         return DASH
 
     text = _group(format(number.quantize(Decimal(1).scaleb(-decimals)), "f"))
-    # Знак ставится перед символом валюты: «-$500», а не «$-500».
+    # The sign goes before the currency symbol: "-$500", not "$-500".
     if text.startswith("-"):
         return f"-${text[1:]}"
     return f"+${text}" if signed else f"${text}"
 
 
 def format_plain(value) -> str:
-    """Число для поля ввода: без группировки, знака процента и хвоста нулей.
+    """A number for an input field: no grouping, no percent sign, no trailing zeros.
 
-    Отдельно от отображающих фильтров намеренно. Подставив в value формы
-    «-1.00%» или «1 000» с неразрывным пробелом, форму нельзя будет
-    отправить: сервер такое не разберёт, и правило перестанет
-    сохраняться от одного лишнего нажатия «Сохранить».
+    Deliberately separate from the display filters. With "-1.00%" or "1 000" with a
+    non-breaking space in the form's value, the form can't be submitted: the server
+    won't parse it, and the rule would stop saving after a single extra click on "Save".
     """
     if value is None:
         return ""
@@ -84,9 +83,9 @@ def format_plain(value) -> str:
 
 
 def format_usd_short(value) -> str:
-    """Крупная сумма коротко: $2.71 трлн вместо тринадцати цифр подряд.
+    """A large amount, short: $2.71 trillion instead of thirteen digits in a row.
 
-    Капитализация рынка в полном виде нечитаема и ломает вёрстку карточки.
+    The market cap in full is unreadable and breaks the card layout.
     """
     if value is None:
         return DASH
@@ -123,12 +122,12 @@ def format_pct(value, decimals: int = 2, *, signed: bool = False) -> str:
 
 @pass_context
 def format_moment(context, value, fmt: str = "%d.%m %H:%M") -> str:
-    """Время в поясе пользователя.
+    """Time in the user's time zone.
 
-    Фильтр берёт пояс из current_user прямо в контексте шаблона: иначе
-    каждый роутер тащил бы его в контекст руками и однажды забыл, а
-    страница молча показала бы UTC — самый неприятный вид ошибки, потому
-    что выглядит она правдоподобно.
+    The filter takes the zone from current_user right in the template context: otherwise
+    every router would have to pass it into the context by hand and would forget it one
+    day, and the page would silently show UTC - the nastiest kind of bug, because it
+    looks plausible.
     """
     if value is None:
         return DASH
@@ -147,11 +146,11 @@ def _group(text: str) -> str:
 
 
 def static_version() -> str:
-    """Метка версии статики для обхода кэша браузера.
+    """Static asset version tag for busting the browser cache.
 
-    Без неё после деплоя пользователь продолжает видеть старый CSS, пока
-    не сбросит кэш вручную. Берём время изменения таблицы стилей:
-    меняется при каждой сборке образа и не требует отдельного шага.
+    Without it, after a deploy the user keeps seeing the old CSS until they clear the
+    cache by hand. We take the stylesheet's modification time: it changes with every
+    image build and needs no extra step.
     """
     stylesheet = STATIC_DIR / "css" / "style.css"
     try:
@@ -164,10 +163,10 @@ STATIC_VERSION = static_version()
 
 
 def _flash_messages(request: Request) -> dict:
-    """Отдать шаблону накопленные сообщения и очистить очередь.
+    """Pass accumulated messages to the template and clear the queue.
 
-    Подключено обработчиком контекста, чтобы каждый роутер не тащил их
-    в контекст руками и не забывал об этом.
+    Hooked up as a context processor so that every router doesn't have to pass them into
+    the context by hand and forget to.
     """
     return {"flashes": flash.pop_flashes(request), "static_version": STATIC_VERSION}
 

@@ -1,7 +1,7 @@
-"""Портфель, котировки, сигналы и алерты в боте.
+"""Portfolio, quotes, signals and alerts in the bot.
 
-Обработчики тонкие: разбирают ввод и зовут те же сервисы, что и
-веб-панель. Расхождение цифр между ботом и сайтом недопустимо.
+The handlers are thin: they parse input and call the same services as the web panel.
+Numbers must never differ between the bot and the site.
 """
 
 from aiogram import Router
@@ -121,7 +121,7 @@ async def price(
         )
         lines.append(f"{code}: <code>{formatting.number(ticker.last)}</code>{change}")
 
-    # Разница между биржами — то, ради чего их две.
+    # The difference between exchanges is the whole point of having two.
     prices = [ticker.last for _code, ticker in rows if ticker.last]
     if len(prices) > 1:
         low, high = min(prices), max(prices)
@@ -230,10 +230,10 @@ async def create_alert(
 async def _find_watched_market(
     session: AsyncSession, user: User, symbol: str
 ) -> Market | None:
-    """Пара из списка отслеживания, иначе — любая с таким символом.
+    """A pair from the watchlist, otherwise any pair with that symbol.
 
-    Предпочтение отслеживаемой не случайно: только по ним фоновый процесс
-    держит свежие данные.
+    Preferring a watched pair is deliberate: the background process keeps data fresh
+    only for those.
     """
     watched = await watchlist_service.market_ids(session, user)
     if watched:

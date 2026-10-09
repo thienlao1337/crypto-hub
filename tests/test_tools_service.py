@@ -1,7 +1,7 @@
-"""Проверки конвертера и калькулятора сделки.
+"""Converter and trade calculator tests.
 
-Числа здесь считаются вручную: калькулятор, который врёт на комиссии,
-хуже отсутствующего.
+The numbers here are computed by hand: a calculator that lies about fees is worse than
+none.
 """
 
 from decimal import Decimal
@@ -14,7 +14,7 @@ from app.services import market_service, tools_service
 from tests import fakes
 
 
-# --- Разбор ввода ---
+# --- Input parsing ---
 
 
 @pytest.mark.parametrize(
@@ -22,7 +22,7 @@ from tests import fakes
     [
         ("1", Decimal(1)),
         ("0.5", Decimal("0.5")),
-        # Запятая — привычка русской раскладки, пробелы копируются из вёрстки.
+        # A comma is a habit of the Russian layout, spaces get copied from the markup.
         ("1,5", Decimal("1.5")),
         (" 70 000,25 ", Decimal("70000.25")),
     ],
@@ -37,14 +37,14 @@ def test_parse_decimal_rejects_nonsense(raw):
         tools_service.parse_decimal(raw, "количество")
 
 
-# --- Калькулятор сделки ---
+# --- Trade calculator ---
 
 
 def test_long_profit_accounts_for_both_fees():
-    """Комиссия берётся и на входе, и на выходе.
+    """The fee is charged both on entry and exit.
 
-    0.1 BTC: вход 100 000 (=10 000), выход 110 000 (=11 000).
-    Комиссия 0.1%: 10 + 11 = 21. Грязными 1000, чистыми 979.
+    0.1 BTC: entry 100,000 (=10,000), exit 110,000 (=11,000).
+    Fee 0.1%: 10 + 11 = 21. Gross 1000, net 979.
     """
     result = tools_service.calculate_trade(
         side="buy",
@@ -103,7 +103,7 @@ def test_zero_fee_leaves_pnl_untouched():
 
 
 def test_breakeven_covers_both_fees():
-    """На цене выхода в ноль результат действительно нулевой."""
+    """At the break-even exit price the result really is zero."""
     entry = Decimal(100)
     fee = Decimal("0.5")
     result = tools_service.calculate_trade(
@@ -156,7 +156,7 @@ def test_bad_trade_input_rejected(kwargs):
         tools_service.calculate_trade(**params)
 
 
-# --- Конвертер ---
+# --- Converter ---
 
 
 @pytest_asyncio.fixture

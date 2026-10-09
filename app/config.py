@@ -5,9 +5,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
-# Значения из .env.example. Они рабочие — с ними всё запускается и ничего
-# не жалуется, — и именно поэтому опасны: подписанную известным секретом
-# cookie подделает любой, кто видел исходники.
+# Values from .env.example. They work - everything starts with them and nothing
+# complains - and that's exactly why they're dangerous: anyone who has seen the
+# source can forge a cookie signed with a known secret.
 DEFAULT_SESSION_SECRET = "dev-secret-change-me"
 DEFAULT_OWNER_PASSWORD = "change-me"
 DEFAULT_POSTGRES_PASSWORD = "cryptohub"
@@ -26,68 +26,67 @@ class Settings(BaseSettings):
     postgres_host: str = "localhost"
     postgres_port: int = 5432
 
-    # --- Веб-панель ---
+    # --- Web panel ---
     web_host: str = "0.0.0.0"
     web_port: int = 8000
     session_secret: str = "dev-secret-change-me"
-    # Флаг Secure у сессионной cookie. По умолчанию включён: панель
-    # должна работать по https. Для локального запуска по http его
-    # приходится снимать, иначе браузер не отправит cookie и вход не
-    # состоится.
+    # Secure flag on the session cookie. On by default: the panel is meant to
+    # run over https. For a local run over http it has to be turned off,
+    # otherwise the browser won't send the cookie and login fails.
     session_secure_cookie: bool = True
-    # Публичный адрес панели — нужен боту для ссылок и привязки аккаунта.
+    # Public address of the panel - the bot needs it for links and account linking.
     public_url: str = "http://localhost:8000"
 
-    # --- Шифрование API-ключей бирж ---
-    # Fernet-ключ (urlsafe base64, 32 байта). Сгенерировать:
+    # --- Encryption of exchange API keys ---
+    # Fernet key (urlsafe base64, 32 bytes). Generate one:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-    # Потеря этого ключа = потеря доступа ко всем сохранённым ключам бирж,
-    # их придётся заводить заново. Хранить отдельно от бэкапа БД.
+    # Losing this key = losing access to all stored exchange keys; they'd have to be added again.
+    # Store it separately from DB backups.
     encryption_key: str = ""
 
-    # --- Первый аккаунт (владелец) ---
-    # Создаётся сидом при первом запуске; регистрация остальных — по инвайту.
+    # --- First account (owner) ---
+    # Created by the seed on first start; everyone else registers by invite.
     seed_owner_email: str = "owner@example.com"
     seed_owner_password: str = "change-me"
 
-    # --- Telegram-бот ---
+    # --- Telegram bot ---
     bot_token: str = ""
 
-    # --- Веб-пуш ---
-    # Пара ключей VAPID: ими push-сервис браузера отличает наш сервер от
-    # чужого. Сгенерировать:
+    # --- Web push ---
+    # VAPID key pair: the browser's push service uses it to tell our server
+    # apart from anyone else's. Generate one:
     #   docker compose run --rm web python -m app.services.webpush
-    # Пусто — веб-пуш просто выключен, остальные каналы работают.
+    # Empty - web push is simply disabled; the other channels keep working.
     vapid_public_key: str = ""
     vapid_private_key: str = ""
-    # Контакт для push-сервиса: по нему он свяжется, если с отправкой
-    # что-то не так. Требование спецификации, mailto: или https:.
+    # Contact for the push service: it uses it to reach us if something is
+    # wrong with sending. Required by the spec, mailto: or https:.
     vapid_subject: str = "mailto:admin@example.com"
 
-    # --- Внешние источники данных ---
-    # CoinGecko без ключа работает на публичном тире с жёстким лимитом;
-    # demo-ключ бесплатный и поднимает лимит. Пусто — работаем без ключа.
+    # --- External data sources ---
+    # Without a key CoinGecko runs on the public tier with a strict limit; a
+    # demo key is free and raises the limit. Empty - we work without a key.
     coingecko_api_key: str = ""
 
     # --- P2P ---
-    # Глобальный рубильник, как у автотрейдинга. Выключен — правила
-    # можно настраивать и наблюдать, но цену объявления бот не двигает.
+    # Global kill switch, same as for auto-trading. When off, rules can be
+    # configured and observed, but the bot doesn't move the ad price.
     p2p_enabled: bool = False
     sync_p2p_ads_interval: int = 300
     reprice_p2p_interval: int = 60
 
-    # --- Хранение данных ---
-    # Свечей оставляем по столько на каждую пару и таймфрейм. Читаются
-    # всегда последние несколько сотен: и индикаторам, и графику больше
-    # не нужно, а пишутся они непрерывно.
+    # --- Data retention ---
+    # We keep this many candles per pair and timeframe. Only the latest few
+    # hundred are ever read - neither indicators nor the chart need more -
+    # while new ones are written continuously.
     candles_keep_per_series: int = 1500
-    # Ноль в любом из трёх — «не удалять».
+    # Zero in any of the three means "never delete".
     login_events_keep_days: int = 180
     notifications_keep_days: int = 90
     global_stats_keep_days: int = 365
     p2p_events_keep_days: int = 180
 
-    # --- Интервалы фоновых задач, секунды ---
+    # --- Background job intervals, seconds ---
     sync_balances_interval: int = 60
     sync_trades_interval: int = 300
     sync_tickers_interval: int = 60
@@ -97,9 +96,9 @@ class Settings(BaseSettings):
     portfolio_snapshot_interval: int = 900
     global_stats_interval: int = 300
 
-    # --- Автотрейдинг ---
-    # Глобальный рубильник. Даже при включённом флаге каждая стратегия
-    # стартует в режиме paper и переводится в live отдельным действием.
+    # --- Auto-trading ---
+    # Global kill switch. Even with the flag on, every strategy starts in paper
+    # mode and is switched to live by a separate action.
     autotrade_enabled: bool = False
 
     @property
@@ -111,12 +110,11 @@ class Settings(BaseSettings):
 
 
 def deployment_problems(settings: "Settings") -> tuple[list[str], list[str]]:
-    """Что мешает выпускать это в прод: (запрещающее, предупреждающее).
+    """What blocks shipping this to production: (blocking, warning).
 
-    Проверка нужна потому, что все эти значения работают. Забытый секрет
-    сессии не ломает ничего видимого — панель просто открывается, — а
-    подделать вход по нему может любой, кто читал репозиторий. Такое
-    должно падать громко, а не ждать инцидента.
+    The check exists because all of these values work. A forgotten session secret breaks
+    nothing visible - the panel just opens - yet anyone who has read the repository can
+    forge a login with it. That has to fail loudly instead of waiting for an incident.
     """
     blocking: list[str] = []
     warnings: list[str] = []
@@ -159,27 +157,27 @@ def deployment_problems(settings: "Settings") -> tuple[list[str], list[str]]:
 
 
 def verify_deployment(settings: "Settings | None" = None) -> None:
-    """Не дать процессу подняться с настройками из примера.
+    """Prevent the process from starting with the example settings.
 
-    В режиме DEBUG только предупреждаем: разработчику незачем каждый раз
-    заводить настоящие секреты, и падение здесь мешало бы работать.
+    In DEBUG mode we only warn: a developer shouldn't have to set up real secrets every
+    time, and failing here would get in the way of work.
     """
     settings = settings or get_settings()
     blocking, warnings = deployment_problems(settings)
 
     for message in warnings:
-        logger.warning("Настройки: %s", message)
+        logger.warning("Settings: %s", message)
 
     if not blocking:
         return
 
     for message in blocking:
-        logger.error("Настройки: %s", message)
+        logger.error("Settings: %s", message)
 
     if settings.debug:
         logger.warning(
-            "DEBUG=true, поэтому запуск продолжается. В проде эти настройки "
-            "остановят процесс."
+            "DEBUG=true, so startup continues. In production these settings "
+            "will stop the process."
         )
         return
 

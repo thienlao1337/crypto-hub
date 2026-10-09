@@ -1,15 +1,15 @@
-"""P2P Bybit.
+"""Bybit P2P.
 
-Эндпоинты /v5/p2p/*, подпись — обычная для v5: HMAC-SHA256 от строки
-timestamp + api_key + recv_window + тело запроса.
+Endpoints /v5/p2p/*, signed the usual v5 way: HMAC-SHA256 over timestamp + api_key +
+recv_window + request body.
 
-Доступ открыт только аккаунтам со статусом General Advertiser и выше.
-Обычный ключ получает отказ, и отказ этот чинится заявкой на площадке, а
-не повтором запроса — поэтому он отдельным типом ошибки.
+Access is only open to accounts with General Advertiser status or higher. A regular key
+gets rejected, and that rejection is fixed by applying on the marketplace, not by
+retrying - hence a separate error type.
 
-Проверить вживую без статуса рекламодателя нечем, поэтому разбор ответов
-написан по документации и падает с именем недостающего поля вместо того,
-чтобы подставлять значение по умолчанию.
+There is no way to test live without advertiser status, so response parsing follows the
+documentation and fails with the name of the missing field instead of substituting a
+default.
 """
 
 import hashlib
@@ -39,12 +39,12 @@ TESTNET_URL = "https://api-testnet.bybit.com"
 RECV_WINDOW = "5000"
 TIMEOUT = 15
 
-# Коды отказа из-за отсутствия статуса рекламодателя.
+# Rejection codes caused by missing advertiser status.
 ACCESS_CODES = {10005, 912100013}
 
 
 class BybitP2PAdapter:
-    """Одно подключение к P2P Bybit."""
+    """A single connection to Bybit P2P."""
 
     code = "bybit"
 
@@ -64,13 +64,13 @@ class BybitP2PAdapter:
     async def __aexit__(self, *exc_info) -> None:
         await self.close()
 
-    # --- Подпись ---
+    # --- Signing ---
 
     def sign(self, timestamp: str, body: str) -> str:
-        """Подпись запроса v5.
+        """v5 request signature.
 
-        Порядок частей задан биржей и важен: перестановка даёт формально
-        правильную подпись, которую отвергнет сервер.
+        The order of parts is defined by the exchange and matters: a reordering produces
+        a formally valid signature that the server rejects.
         """
         payload = f"{timestamp}{self._key}{RECV_WINDOW}{body}"
         return hmac.new(
@@ -99,7 +99,7 @@ class BybitP2PAdapter:
         return self._unwrap(response, path)
 
     def _unwrap(self, response: httpx.Response, path: str) -> dict:
-        """Развернуть конверт v5 и перевести отказы в наши ошибки."""
+        """Unwrap the v5 envelope and turn rejections into our errors."""
         try:
             data = response.json()
         except ValueError as exc:
@@ -112,14 +112,15 @@ class BybitP2PAdapter:
                 "(General Advertiser и выше) в кабинете Bybit."
             )
         if code not in (0, None):
-            # Текст площадки в интерфейс не выносим — там бывает и адрес
-            # запроса, и служебные поля; наружу идёт код и объяснение.
+            # The marketplace's text is not shown in the UI - it may contain
+            # the request URL and service fields; we expose a code and an
+            # explanation.
             logger.warning("Bybit P2P %s: %s %s", path, code, data.get("retMsg"))
             raise P2PError(f"Bybit отклонил запрос (код {code}).")
 
         return data.get("result") or {}
 
-    # --- Доступ ---
+    # --- Access ---
 
     async def check_access(self) -> P2PAccess:
         try:
@@ -130,7 +131,7 @@ class BybitP2PAdapter:
             return P2PAccess(is_allowed=False, error=str(exc))
         return P2PAccess(is_allowed=True)
 
-    # --- Объявления ---
+    # --- Ads ---
 
     async def fetch_my_ads(self) -> list[AdInfo]:
         result = await self._post("/v5/p2p/item/personal/list", {"page": 1, "size": 100})
@@ -139,10 +140,10 @@ class BybitP2PAdapter:
     async def fetch_board(
         self, *, side: str, asset: str, fiat: str, payment: str | None = None
     ) -> list[BoardEntry]:
-        """Чужие объявления той же стороны.
+        """Other ads on the same side.
 
-        Bybit нумерует стороны с точки зрения контрагента: чтобы увидеть
-        соседей по своей продаже, спрашивать надо сторону покупки.
+        Bybit labels sides from the counterparty's point of view: to see our selling
+        neighbours we have to ask for the buy side.
         """
         payload = {
             "tokenId": asset,
@@ -162,7 +163,7 @@ class BybitP2PAdapter:
             "/v5/p2p/item/update", {"id": external_id, "price": format(price, "f")}
         )
 
-    # --- Заказы ---
+    # --- Orders ---
 
     async def fetch_orders(self) -> list[OrderInfo]:
         result = await self._post("/v5/p2p/order/simplifyList", {"page": 1, "size": 50})
@@ -171,7 +172,7 @@ class BybitP2PAdapter:
     async def release_order(self, external_id: str) -> None:
         await self._post("/v5/p2p/order/finish", {"orderId": external_id})
 
-    # --- Разбор ответов ---
+    # --- Response parsing ---
 
     def _parse_ad(self, item: dict) -> AdInfo:
         return AdInfo(

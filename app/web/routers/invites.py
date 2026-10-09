@@ -1,4 +1,4 @@
-"""Приглашения. Раздел владельца: регистрация в панели закрытая."""
+"""Invites. Owner section: registration in the panel is closed."""
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -54,7 +54,7 @@ async def create_invite(
         created_by=user,
         email=email.strip() or None,
         note=note.strip() or None,
-        # 0 в форме означает «без срока».
+        # 0 in the form means "no expiry".
         ttl_days=ttl_days or None,
     )
     await session.commit()
@@ -78,8 +78,8 @@ async def revoke_invite(
     try:
         await invite_service.revoke_invite(session, invite, by=user)
     except invite_service.InviteError as exc:
-        # Откат помечает загруженные объекты протухшими, поэтому страницу
-        # не отрисовываем, а перенаправляем — см. app/web/flash.py.
+        # A rollback marks loaded objects as expired, so we don't render the
+        # page but redirect - see app/web/flash.py.
         await session.rollback()
         flash.error(request, str(exc))
         return RedirectResponse("/admin/invites", status_code=303)

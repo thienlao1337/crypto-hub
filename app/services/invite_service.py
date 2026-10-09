@@ -1,7 +1,7 @@
-"""Приглашения: регистрация в системе закрытая.
+"""Invites: registration is closed.
 
-Коды выдаёт владелец. Каждый код одноразовый, может быть привязан к
-конкретному адресу и имеет срок жизни.
+Codes are issued by the owner. Each code is single-use, may be tied to a specific
+address and has an expiry.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -16,7 +16,7 @@ DEFAULT_TTL_DAYS = 14
 
 
 class InviteError(Exception):
-    """Базовая ошибка сервиса приглашений."""
+    """Base error of the invite service."""
 
 
 class InviteNotFound(InviteError):
@@ -73,8 +73,8 @@ async def create_invite(
 async def get_by_code(session: AsyncSession, code: str, *, lock: bool = False) -> Invite | None:
     query = select(Invite).where(Invite.code == code.strip())
     if lock:
-        # Блокировка строки на время регистрации: без неё два
-        # одновременных запроса с одним кодом создадут двух пользователей.
+        # Row lock for the duration of registration: without it two
+        # simultaneous requests with the same code would create two users.
         query = query.with_for_update()
     result = await session.execute(query)
     return result.scalar_one_or_none()
@@ -86,10 +86,10 @@ async def list_invites(session: AsyncSession) -> list[Invite]:
 
 
 def check_usable(invite: Invite, *, email: str | None = None) -> None:
-    """Проверить, что кодом ещё можно воспользоваться.
+    """Check that the code can still be used.
 
-    Отдельно от загрузки — чтобы форму регистрации можно было показать
-    с той же проверкой, что и отправку.
+    Separate from loading so the registration form can be shown with the same check as
+    the submission.
     """
     if invite.revoked_at is not None:
         raise InviteRevoked("Приглашение отозвано.")
@@ -133,7 +133,7 @@ async def register_by_invite(
     ip: str | None = None,
     user_agent: str | None = None,
 ) -> User:
-    """Создать аккаунт по приглашению и погасить код."""
+    """Create an account from an invite and invalidate the code."""
     invite = await get_by_code(session, code, lock=True)
     if invite is None:
         raise InviteNotFound("Приглашение не найдено.")
@@ -166,7 +166,7 @@ async def register_by_invite(
 
 
 def _as_utc(value: datetime) -> datetime:
-    """SQLite отдаёт наивные datetime — приводим к UTC для сравнения."""
+    """SQLite returns naive datetimes - convert to UTC for comparison."""
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value

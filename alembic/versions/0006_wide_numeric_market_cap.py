@@ -1,8 +1,7 @@
 """wide numeric for market cap
 
-Капитализация всего рынка измеряется триллионами, а Numeric(20, 8)
-держит меньше 10^12 — на живых данных CoinGecko вставка падала с
-numeric field overflow.
+Total market cap is measured in trillions, while Numeric(20, 8) holds less than 10^12 -
+inserts with live CoinGecko data failed with numeric field overflow.
 
 Revision ID: 06ea044f3464
 Revises: 0005

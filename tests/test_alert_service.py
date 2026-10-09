@@ -66,7 +66,7 @@ def add_candles(session, market_id, timeframe_id, prices, *, minutes_step: int =
         )
 
 
-# --- Условия ---
+# --- Conditions ---
 
 
 def test_price_above_triggers_only_when_exceeded():
@@ -82,10 +82,10 @@ def test_price_above_triggers_only_when_exceeded():
 
 
 def test_message_shows_readable_numbers():
-    """Цена в тексте не должна тянуть хвост нулей.
+    """The price in the text must not carry a tail of zeros.
 
-    Numeric(36, 18) отдаёт 79761.900000000000000000, и в уведомлении это
-    выглядит как сбой, а не как цена.
+    Numeric(36, 18) returns 79761.900000000000000000, and in a notification that looks
+    like a glitch, not a price.
     """
     hit = alert_service.check(
         "price_above",
@@ -116,7 +116,7 @@ def test_price_alert_is_quiet_without_price():
 
 
 def test_pct_change_needs_history():
-    """Без свечей за период молчим, а не выдаём срабатывание наугад."""
+    """Without candles for the period we stay silent rather than trigger at random."""
     assert alert_service.check(
         "pct_change", {"pct": 5, "window_minutes": 60},
         price=Decimal("80000"), symbol="BTC/USDT", candles=[],
@@ -137,7 +137,7 @@ def test_pct_change_direction_matters():
     )
     assert grew is not None and "выросла" in grew.message
 
-    # Порог на рост не должен срабатывать на падении.
+    # A rise threshold must not fire on a drop.
     assert alert_service.check(
         "pct_change", {"pct": 5, "window_minutes": 60},
         price=Decimal(90), symbol="BTC/USDT", candles=candles,
@@ -175,7 +175,7 @@ def test_unknown_type_is_ignored():
     assert alert_service.check("что-то своё", {}, price=Decimal(1), symbol="X") is None
 
 
-# --- Готовность к срабатыванию ---
+# --- Readiness to fire ---
 
 
 def test_cooldown_blocks_repeat():
@@ -214,7 +214,7 @@ def test_inactive_alert_does_not_fire():
     assert not alert_service.is_ready(alert, now=NOW)
 
 
-# --- Проверка ввода ---
+# --- Input validation ---
 
 
 @pytest.mark.parametrize(
@@ -240,7 +240,7 @@ def test_good_params_accepted():
     alert_service.validate_params("rsi", {"threshold": 70, "direction": "above"})
 
 
-# --- Полный цикл ---
+# --- Full cycle ---
 
 
 async def test_alert_fires_and_creates_notification(session, setup):
@@ -314,7 +314,7 @@ async def test_other_users_alert_is_not_accessible(session, setup):
 
 
 async def test_cooldown_has_lower_bound(session, setup):
-    """Слишком короткая пауза превратила бы алерт в спам."""
+    """A cooldown that's too short would turn the alert into spam."""
     alert = await alert_service.create_alert(
         session, setup["user"],
         market_id=setup["market"].id,
@@ -325,7 +325,7 @@ async def test_cooldown_has_lower_bound(session, setup):
     assert alert.cooldown_seconds >= 60
 
 
-# --- Правка алерта ---
+# --- Editing an alert ---
 
 
 async def test_update_changes_condition(session, setup):
@@ -355,7 +355,7 @@ async def test_update_changes_condition(session, setup):
 
 
 async def test_update_clears_cooldown_when_condition_changes(session, setup):
-    """Новое условие не должно молчать из-за паузы, назначенной старому."""
+    """A new condition must not stay silent because of a cooldown assigned to the old one."""
     await alert_service.create_alert(
         session, setup["user"],
         market_id=setup["market"].id,
@@ -386,7 +386,7 @@ async def test_update_clears_cooldown_when_condition_changes(session, setup):
 
 
 async def test_update_keeps_cooldown_when_only_channels_change(session, setup):
-    """Смена каналов доставки — не смена условия, пауза остаётся."""
+    """Changing delivery channels isn't changing the condition - the cooldown stays."""
     await alert_service.create_alert(
         session, setup["user"],
         market_id=setup["market"].id,
@@ -450,11 +450,11 @@ async def test_recent_triggers_newest_first(session, setup):
     assert "80000" in triggers[0].message
 
 
-# --- Лимит срабатываний и срок жизни ---
+# --- Trigger limit and lifetime ---
 
 
 async def test_trigger_limit_stops_alert(session, setup):
-    """Лимит проверялся в коде, но задать его было нечем."""
+    """The limit was checked in code, but there was no way to set it."""
     await alert_service.create_alert(
         session, setup["user"],
         market_id=setup["market"].id,
@@ -470,7 +470,7 @@ async def test_trigger_limit_stops_alert(session, setup):
     assert len(first) == 1
 
     alert = (await alert_service.list_alerts(session, setup["user"]))[0][0]
-    alert.last_triggered_at = None  # снимаем паузу, проверяем именно лимит
+    alert.last_triggered_at = None  # clear the cooldown, test the limit specifically
     await session.commit()
 
     assert await alert_service.evaluate_all(session) == []
@@ -497,7 +497,7 @@ async def test_expired_alert_is_silent(session, setup):
 
 
 async def test_past_deadline_rejected_at_creation(session, setup):
-    """Иначе алерт молча не сработал бы ни разу."""
+    """Otherwise the alert would silently never fire."""
     with pytest.raises(alert_service.AlertError):
         await alert_service.create_alert(
             session, setup["user"],

@@ -1,17 +1,16 @@
-"""Открытые позиции и нереализованный PnL.
+"""Open positions and unrealized PnL.
 
-Спотовая биржа не отдаёт «позиции»: она отдаёт баланс и историю сделок.
-Среднюю цену входа приходится собирать самим — проходом по сделкам от
-старых к новым с усреднением по стоимости. Тот же проход попутно считает
-реализованный PnL каждой продажи: без него в истории видно, что и почём
-продано, но не видно, заработали на этом или потеряли.
+A spot exchange doesn't return "positions": it returns a balance and a trade history.
+The average entry price has to be assembled ourselves - by walking the trades from
+oldest to newest with cost averaging. The same pass also computes the realized PnL of
+each sale: without it the history shows what was sold and at what price, but not whether
+it made or lost money.
 
-Честность цифры упирается в полноту истории. Биржи отдают ограниченный
-период, поэтому продажа монеты, купленной до начала этого периода,
-выглядит как продажа из ниоткуда, а купленная давно позиция — как
-меньшая, чем есть на балансе. Оба случая не замалчиваются: позиция
-помечается cost_basis_complete = False, и интерфейс показывает цифру с
-оговоркой, а не выдаёт неполный расчёт за точный.
+How honest the number is depends on how complete the history is. Exchanges return a
+limited period, so selling a coin bought before that period looks like a sale out of
+nowhere, and a long-held position looks smaller than the balance. Neither case is hushed
+up: the position is marked cost_basis_complete = False, and the UI shows the number with
+a caveat instead of passing off an incomplete calculation as exact.
 """
 
 import logging
@@ -38,23 +37,23 @@ from app.services import market_service
 
 logger = logging.getLogger(__name__)
 
-# Насколько позиция, собранная из сделок, может недотягивать до баланса,
-# прежде чем это считается признаком неполной истории. Небольшой зазор
-# нужен всегда: комиссии списываются с монеты, переводы между кошельками
-# биржи в историю сделок не попадают.
+# How far a position built from trades may fall short of the balance before
+# it's considered a sign of incomplete history. A small gap is always needed:
+# fees are charged in the coin, and transfers between exchange wallets don't
+# appear in the trade history.
 BALANCE_TOLERANCE = Decimal("0.99")
 
 
 @dataclass
 class WalkResult:
-    """Итог прохода по сделкам одной пары."""
+    """Result of a pass over the trades of one pair."""
 
     amount: Decimal
     cost: Decimal
     opened_at: datetime | None
     complete: bool
-    # По одному значению на сделку, в том же порядке: реализованный PnL
-    # продажи или None для покупки.
+    # One value per trade, in the same order: realized PnL of a sale or None
+    # for a purchase.
     realized: list[Decimal | None] = field(default_factory=list)
 
     @property
@@ -64,7 +63,7 @@ class WalkResult:
 
 @dataclass
 class PositionView:
-    """Строка таблицы открытых позиций."""
+    """A row of the open positions table."""
 
     symbol: str
     exchange: str
@@ -81,16 +80,16 @@ class PositionView:
 def walk_trades(
     trades: list[Trade], *, base_asset_id: int, quote_asset_id: int
 ) -> WalkResult:
-    """Пройти сделки одной пары и собрать открытую позицию.
+    """Walk the trades of one pair and build the open position.
 
-    Функция чистая: ничего не пишет и не читает из базы, поэтому её
-    можно проверять на выдуманных сделках без биржи и без сессии.
+    The function is pure: it neither writes to nor reads from the database, so it can be
+    checked on made-up trades without an exchange or a session.
 
-    Комиссия учитывается, только если списана валютой котировки (растёт
-    стоимость входа) или самой монетой (уменьшается полученное
-    количество). Комиссию третьей монетой — скидочный BNB и подобное —
-    пересчитывать не по чему, и она игнорируется: занизить цену входа
-    молчаливой подстановкой курса хуже, чем не учесть.
+    The fee is accounted for only if it was charged in the quote currency (the entry
+    cost grows) or in the coin itself (the received amount shrinks). A fee in a third
+    coin - discounted BNB and the like - has nothing to convert by and is ignored:
+    understating the entry price by silently plugging in a rate is worse than not
+    accounting for it.
     """
     amount = Decimal(0)
     cost = Decimal(0)
@@ -118,8 +117,8 @@ def walk_trades(
             continue
 
         if amount <= 0 or qty <= 0:
-            # Продано то, чего в истории нет: покупка осталась за
-            # пределами периода, который отдаёт биржа.
+            # Sold something that isn't in the history: the purchase is outside
+            # the period the exchange returns.
             complete = False
             realized.append(None)
             continue
@@ -129,8 +128,8 @@ def walk_trades(
         if sold < qty:
             complete = False
 
-        # Выручку берём пропорционально закрытой части: если продано
-        # больше, чем мы знаем, оставшийся хвост нам не принадлежит.
+        # Proceeds are taken in proportion to the closed part: if more was sold
+        # than we know about, the remaining tail isn't ours.
         proceeds = (gross - fee_quote) * (sold / qty)
         realized.append(proceeds - entry * sold)
 
@@ -151,11 +150,11 @@ def walk_trades(
 
 
 async def rebuild_positions(session: AsyncSession, account: ExchangeAccount) -> int:
-    """Пересобрать позиции одного подключения из истории сделок.
+    """Rebuild the positions of one connection from the trade history.
 
-    Пересчёт идёт целиком, а не приращением: досинхронизация может
-    принести сделку задним числом, и тогда средняя цена входа меняется
-    у всей последующей цепочки.
+    The recalculation is done in full, not incrementally: a catch-up sync may bring in a
+    backdated trade, and then the average entry price changes for the whole chain after
+    it.
     """
     markets = (
         await session.execute(
@@ -193,10 +192,10 @@ async def rebuild_positions(session: AsyncSession, account: ExchangeAccount) -> 
         position = await _get_position(session, account.id, market_id)
 
         if result.amount <= 0:
-            # Позиция закрыта. Существующую строку не удаляем — по ней
-            # видно, что пара торговалась и сейчас в ней ничего нет, — но
-            # и новую под нулевой остаток не заводим: список закрытых
-            # позиций дублировал бы историю сделок.
+            # The position is closed. We don't delete the existing row - it
+            # shows that the pair was traded and is currently empty - but we
+            # don't create a new one for a zero balance either: a list of
+            # closed positions would duplicate the trade history.
             if position is not None:
                 position.amount = Decimal(0)
                 position.is_open = False
@@ -230,10 +229,10 @@ async def rebuild_positions(session: AsyncSession, account: ExchangeAccount) -> 
 
 
 async def mark_positions(session: AsyncSession) -> int:
-    """Проставить открытым позициям текущую цену и нереализованный PnL.
+    """Set the current price and unrealized PnL on open positions.
 
-    Вызывается сразу после обновления котировок, чтобы оценка и срез
-    цен, по которому она сделана, были из одного момента.
+    Called right after the quote refresh so that the valuation and the price snapshot
+    it's based on come from the same moment.
     """
     prices = await market_service.build_usd_price_map(session)
 
@@ -255,8 +254,8 @@ async def mark_positions(session: AsyncSession) -> int:
         position.mark_price = last
         rate = prices.get(quote_symbol)
         if rate is None:
-            # Пара к неоцениваемой котировке: цену показать можем,
-            # доллары — нет.
+            # Pair against a quote we can't value: we can show the price, but
+            # not the dollars.
             position.unrealized_pnl = None
             continue
 
@@ -268,7 +267,7 @@ async def mark_positions(session: AsyncSession) -> int:
 
 
 async def list_positions(session: AsyncSession, user: User) -> list[PositionView]:
-    """Открытые позиции пользователя, от крупных к мелким."""
+    """The user's open positions, largest first."""
     account_ids = [
         account_id
         for (account_id,) in await session.execute(
@@ -330,16 +329,16 @@ async def list_positions(session: AsyncSession, user: User) -> list[PositionView
 
 
 def total_unrealized(views: list[PositionView]) -> Decimal | None:
-    """Сумма нереализованного PnL по оценённым позициям.
+    """Total unrealized PnL over valued positions.
 
-    None означает «считать не по чему», а не ноль: пустой портфель и
-    портфель без котировок — разные состояния.
+    None means "nothing to compute from", not zero: an empty portfolio and a portfolio
+    without quotes are different states.
     """
     known = [v.unrealized_pnl for v in views if v.unrealized_pnl is not None]
     return sum(known, Decimal(0)) if known else None
 
 
-# --- Вспомогательное ---
+# --- Helpers ---
 
 
 async def _get_position(
@@ -361,13 +360,12 @@ async def _flag_against_balances(
     open_amount_by_asset: dict[int, Decimal],
     open_markets: dict[int, int],
 ) -> None:
-    """Сверить позиции с балансом и пометить неполные.
+    """Reconcile positions with the balance and flag incomplete ones.
 
-    Позиция, собранная из сделок, должна сходиться с тем, что лежит на
-    бирже. Если на балансе монеты заметно больше, чем объясняет история,
-    значит часть покупок осталась за пределами отданного периода —
-    средняя цена входа описывает не весь остаток, и говорить об этом
-    надо прямо.
+    A position built from trades should match what sits on the exchange. If the balance
+    holds noticeably more of the coin than the history explains, some purchases are
+    outside the returned period - the average entry price doesn't describe the whole
+    balance, and that needs to be said plainly.
     """
     if not open_amount_by_asset:
         return

@@ -1,9 +1,9 @@
-"""Проверки через настоящий ASGI-стек.
+"""Tests through the real ASGI stack.
 
-Ловят то, чего не видят тесты сервисов: поведение роутеров, сессию,
-CSRF и отрисовку шаблонов. Именно здесь всплыло, что после
-session.rollback() нельзя обращаться к загруженным объектам — страница
-падала с MissingGreenlet, а пользователь видел «Что-то сломалось».
+They catch what service tests don't see: router behaviour, the session, CSRF and
+template rendering. This is exactly where it surfaced that loaded objects must not be
+accessed after session.rollback() - the page failed with MissingGreenlet and the user
+saw "Something went wrong".
 """
 
 from decimal import Decimal
@@ -27,10 +27,10 @@ PASSWORD = "owner-password-1"
 
 @pytest_asyncio.fixture
 async def client(session):
-    """Клиент к приложению, работающий на тестовой сессии.
+    """A client for the app running on the test session.
 
-    Схема https, чтобы сессионная cookie с флагом Secure сохранялась
-    независимо от настроек окружения.
+    https scheme so the session cookie with the Secure flag is kept regardless of the
+    environment settings.
     """
 
     async def override_session():
@@ -82,7 +82,7 @@ async def _rejecting(*args, **kwargs):
     return KeyCheck(is_valid=False, error="Биржа отклонила ключ")
 
 
-# --- Вход ---
+# --- Login ---
 
 
 async def test_login_and_dashboard(logged_in):
@@ -111,14 +111,14 @@ async def test_form_without_csrf_is_rejected(logged_in):
     assert "устарела" in response.text
 
 
-# --- Ключи бирж ---
+# --- Exchange keys ---
 
 
 async def test_invalid_key_redirects_with_message(logged_in, monkeypatch):
-    """Отказ биржи не должен ронять страницу.
+    """An exchange rejection must not crash the page.
 
-    Раньше здесь была пятисотка: обработчик делал rollback и тут же
-    перечитывал данные, а откат помечает загруженные объекты протухшими.
+    There used to be a 500 here: the handler did a rollback and immediately re-read
+    data, and a rollback marks loaded objects as expired.
     """
     monkeypatch.setattr(keys_service, "_check_with_exchange", _rejecting)
 
@@ -137,7 +137,7 @@ async def test_invalid_key_redirects_with_message(logged_in, monkeypatch):
     assert response.status_code == 303
     assert response.headers["location"] == "/settings/keys"
 
-    # Сообщение переживает редирект и показывается ровно один раз.
+    # The message survives the redirect and is shown exactly once.
     page = await logged_in.get("/settings/keys")
     assert "Биржа отклонила ключ" in page.text
     again = await logged_in.get("/settings/keys")
@@ -205,7 +205,7 @@ async def test_requested_trading_without_confirmation_warns(logged_in, monkeypat
     assert "только чтение" in page.text
 
 
-# --- Смена пароля ---
+# --- Password change ---
 
 
 async def test_wrong_current_password_redirects_with_message(logged_in):
@@ -242,7 +242,7 @@ async def test_password_changed(logged_in):
     assert "Пароль изменён." in page.text
 
 
-# --- Портфель ---
+# --- Portfolio ---
 
 
 async def test_portfolio_without_accounts(logged_in):
@@ -251,12 +251,12 @@ async def test_portfolio_without_accounts(logged_in):
     assert "Нет подключений" in page.text
 
 
-# --- Алерты ---
+# --- Alerts ---
 
 
 @pytest_asyncio.fixture
 async def alert(logged_in, session):
-    """Один алерт по BTC/USDT, чтобы было что редактировать."""
+    """One alert on BTC/USDT, so there's something to edit."""
     for order, (code, name) in enumerate(
         [
             ("price_above", "Цена выше уровня"),
@@ -284,9 +284,9 @@ async def alert(logged_in, session):
     )
     await session.commit()
 
-    # Отдаём простые значения, а не ORM-объекты: роутер на ошибке ввода
-    # делает rollback, и загруженный объект после этого протухает — тест
-    # падал бы на обращении к его полю, а не на проверке поведения.
+    # Return plain values, not ORM objects: on an input error the router does a
+    # rollback, and a loaded object expires after that - the test would fail on
+    # accessing its field instead of on checking behaviour.
     return {"alert_id": row.id, "market_id": market.id, "user_id": user.id}
 
 
@@ -323,12 +323,12 @@ async def test_alert_edited_through_form(logged_in, session, alert):
     reloaded = await alert_service.get_alert(session, user, alert["alert_id"])
     assert reloaded.params == {"level": "70000"}
     assert reloaded.cooldown_seconds == 1800
-    # Галочку Telegram сняли — форма должна это донести, а не проигнорировать.
+    # The Telegram checkbox was unchecked - the form must convey that, not ignore it.
     assert reloaded.notify_telegram is False
 
 
 async def test_bad_edit_returns_message_not_500(logged_in, alert):
-    """После отката сервис не должен ронять страницу обращением к алерту."""
+    """After a rollback the service must not crash the page by accessing the alert."""
     page = await logged_in.get(f'/alerts/{alert["alert_id"]}/edit')
     response = await logged_in.post(
         f'/alerts/{alert["alert_id"]}',
@@ -347,7 +347,7 @@ async def test_bad_edit_returns_message_not_500(logged_in, alert):
 
 
 async def test_stranger_cannot_edit_alert(logged_in, session, alert):
-    """Чужой алерт не должен открываться на правку по прямой ссылке."""
+    """Someone else's alert must not open for editing via a direct link."""
     await user_service.create_user(
         session, email="stranger@example.com", password="stranger-password-1"
     )
@@ -372,7 +372,7 @@ async def test_stranger_cannot_edit_alert(logged_in, session, alert):
     assert response.headers["location"] == "/alerts"
 
 
-# --- Настройки уведомлений ---
+# --- Notification settings ---
 
 
 async def test_notification_settings_page(logged_in):
@@ -380,7 +380,7 @@ async def test_notification_settings_page(logged_in):
 
     assert page.status_code == 200
     assert "Сработавшие алерты" in page.text
-    # Ничего не настраивали — значит всё включено.
+    # Nothing configured - so everything is enabled.
     assert page.text.count("checked") == len(notification_service.EVENT_KINDS) * len(
         notification_service.CHANNELS
     )
@@ -408,24 +408,24 @@ async def test_notification_settings_saved(logged_in, session):
 
 
 async def test_portfolio_sync_rejects_forged_request(logged_in):
-    """Кнопка «Обновить» дёргает биржи — по ссылке с чужого сайта нельзя."""
+    """The "Refresh" button hits the exchanges - it must not work via a link from another site."""
     response = await logged_in.post("/portfolio/sync", data={"csrf_token": "чужой"})
 
     assert response.status_code == 400
 
 
-# --- Регистрация по приглашению ---
+# --- Invite-based registration ---
 
 
 async def test_registration_by_invite_logs_the_user_in(logged_in, session):
-    """Путь нового пользователя целиком: код → форма → он внутри."""
+    """A new user's whole path: code -> form -> logged in."""
     owner = await session.scalar(select(User).where(User.email == "owner@example.com"))
     invite = await invite_service.create_invite(session, created_by=owner)
     code = invite.code
     await session.commit()
 
-    # За токеном идём на страницу панели: /login вошедшего разворачивает,
-    # и брать разметку было бы неоткуда.
+    # We go to a panel page for the token: /login redirects a logged-in user,
+    # so there'd be no markup to take it from.
     page = await logged_in.get("/")
     await logged_in.post("/logout", data={"csrf_token": _csrf(page.text)})
 
@@ -451,7 +451,7 @@ async def test_registration_by_invite_logs_the_user_in(logged_in, session):
 
 
 async def test_registration_without_invite_is_refused(client, session):
-    """Регистрация закрытая: без кода внутрь попасть нельзя."""
+    """Registration is closed: without a code there's no way in."""
     session.add(Exchange(code="bybit", name="Bybit", sort_order=10))
     await session.commit()
 
@@ -474,7 +474,7 @@ async def test_registration_without_invite_is_refused(client, session):
 
 
 async def test_invite_cannot_be_used_twice(logged_in, session):
-    """Иначе одна утёкшая ссылка открывает панель кому угодно."""
+    """Otherwise a single leaked link opens the panel to anyone."""
     owner = await session.scalar(select(User).where(User.email == "owner@example.com"))
     invite = await invite_service.create_invite(session, created_by=owner)
     code = invite.code
@@ -504,12 +504,12 @@ async def test_invite_cannot_be_used_twice(logged_in, session):
     assert (await register("second@example.com")).status_code == 400
 
 
-# --- Вход со вторым фактором ---
+# --- Login with a second factor ---
 
 
 @pytest_asyncio.fixture
 async def with_totp(logged_in, session):
-    """Владелец с включённой 2FA и его секретом."""
+    """An owner with 2FA enabled, and their secret."""
     user = await session.scalar(select(User).where(User.email == "owner@example.com"))
     secret, _ = user_service.begin_totp_setup(user)
     await user_service.confirm_totp(
@@ -536,7 +536,7 @@ async def test_password_alone_does_not_open_the_panel(logged_in, with_totp):
     assert response.status_code == 303
     assert response.headers["location"] == "/login/2fa"
 
-    # Пока код не введён, внутрь пускать нельзя.
+    # Until the code is entered, access must not be granted.
     dashboard = await logged_in.get("/")
     assert dashboard.status_code == 303
 
@@ -584,7 +584,7 @@ async def test_wrong_code_keeps_the_door_shut(logged_in, with_totp):
 
 
 async def test_second_factor_page_needs_a_started_login(client, session):
-    """Открыть шаг 2FA напрямую, не введя пароль, нельзя."""
+    """The 2FA step can't be opened directly without entering the password."""
     session.add(Exchange(code="bybit", name="Bybit", sort_order=10))
     await user_service.create_user(session, email="owner@example.com", password=PASSWORD)
     await session.commit()

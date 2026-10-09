@@ -1,15 +1,14 @@
-"""Миграции должны описывать ровно то, что описывают модели.
+"""Migrations must describe exactly what the models describe.
 
-Проверка не про красоту: клиент разворачивает базу миграциями, а
-приложение работает по моделям. Разошлись — и на его сервере окажется
-схема, которой у нас никогда не было. Такое расхождение находилось в этом
-проекте дважды: пропущенный nullable=False и лишнее значение по умолчанию,
-и оба раза руками написанная миграция выглядела совершенно правдоподобно.
+This isn't about neatness: the client deploys the database with migrations, while the
+app runs on the models. If they diverge, the client's server ends up with a schema we
+never had. Such a mismatch was found in this project twice: a missing nullable=False and
+an extra default, and both times the hand-written migration looked perfectly plausible.
 
-Тест поднимает отдельную базу, накатывает на неё всю цепочку миграций и
-сравнивает результат с metadata. Заодно проверяет, что цепочка проходится
-и в обратную сторону: без работающего downgrade откатить неудачный релиз
-у клиента будет нечем.
+The test spins up a separate database, applies the whole migration chain to it and
+compares the result with the metadata. It also checks that the chain can be walked
+backwards: without a working downgrade the client would have no way to roll back a
+failed release.
 """
 
 import asyncio
@@ -31,9 +30,9 @@ from app.models import Base
 MIGRATIONS_DB_SUFFIX = "_migrations"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Сравнение по умолчанию смотрит только на наличие столбцов и их
-# обязательность. Тип и значение по умолчанию приходится включать явно —
-# ровно там и пряталось второе расхождение.
+# By default the comparison only looks at column presence and nullability. Type
+# and default have to be enabled explicitly - that's exactly where the second
+# mismatch was hiding.
 COMPARE_OPTIONS = {
     "compare_type": True,
     "compare_server_default": True,
@@ -53,7 +52,7 @@ def _url(database: str) -> str:
 
 
 async def _recreate_database(name: str) -> None:
-    """Пустая база на каждый прогон: остатки прошлого исказили бы сравнение."""
+    """An empty database for every run: leftovers from the past would distort the comparison."""
     engine = create_async_engine(_url("postgres"), isolation_level="AUTOCOMMIT", poolclass=NullPool)
     try:
         async with engine.connect() as conn:
@@ -71,28 +70,28 @@ def _alembic_config() -> Config:
 
 
 def _run_alembic(action, *args) -> None:
-    """Alembic внутри зовёт asyncio.run — своему циклу нужен свой поток."""
+    """Alembic calls asyncio.run internally - its loop needs its own thread."""
     action(_alembic_config(), *args)
 
 
 @pytest_asyncio.fixture
 async def migrated_database(monkeypatch):
-    # Имя считаем до подмены настроек: после неё _database_name() выдал бы
-    # суффикс поверх суффикса.
+    # Compute the name before swapping the settings: afterwards
+    # _database_name() would add the suffix on top of the suffix.
     name = _database_name()
     url = _url(name)
 
     await _recreate_database(name)
 
-    # env.py собирает адрес из настроек, а не из alembic.ini, поэтому
-    # переключать надо именно их.
+    # env.py builds the URL from the settings, not from alembic.ini, so those
+    # are what need switching.
     monkeypatch.setattr(get_settings(), "postgres_db", name, raising=False)
     await asyncio.to_thread(_run_alembic, command.upgrade, "head")
     yield url
 
 
 async def test_migrations_match_models(migrated_database):
-    """Схема после миграций должна совпадать с моделями до столбца."""
+    """The schema after migrations must match the models down to the column."""
     engine = create_async_engine(migrated_database, poolclass=NullPool)
     try:
         async with engine.connect() as connection:
@@ -112,7 +111,7 @@ async def test_migrations_match_models(migrated_database):
 
 
 async def test_downgrade_removes_everything(migrated_database):
-    """Без работающего отката неудачный релиз у клиента нечем отменить."""
+    """Without a working downgrade the client has no way to undo a failed release."""
     await asyncio.to_thread(_run_alembic, command.downgrade, "base")
 
     engine = create_async_engine(migrated_database, poolclass=NullPool)
@@ -125,12 +124,12 @@ async def test_downgrade_removes_everything(migrated_database):
     finally:
         await engine.dispose()
 
-    # Своей служебной таблицы alembic не удаляет — это нормально.
+    # alembic doesn't drop its own service table - that's fine.
     assert remaining == ["alembic_version"]
 
 
 async def test_chain_is_reapplyable(migrated_database):
-    """Откат и повторный накат подряд — обычный сценарий отладки релиза."""
+    """Downgrade followed by upgrade is a normal release debugging scenario."""
     await asyncio.to_thread(_run_alembic, command.downgrade, "base")
     await asyncio.to_thread(_run_alembic, command.upgrade, "head")
 
@@ -149,7 +148,7 @@ async def test_chain_is_reapplyable(migrated_database):
 
 @pytest.mark.parametrize("table", ["exchanges", "timeframes", "alert_types"])
 async def test_reference_data_is_seeded(migrated_database, table):
-    """Справочники приезжают миграцией: пустыми они делают панель нерабочей."""
+    """Reference data arrives via migration: empty, it makes the panel unusable."""
     engine = create_async_engine(migrated_database, poolclass=NullPool)
     try:
         async with engine.connect() as connection:

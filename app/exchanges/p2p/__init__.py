@@ -1,4 +1,4 @@
-"""Адаптеры P2P-площадок."""
+"""P2P marketplace adapters."""
 
 from app.exchanges.p2p.base import (
     AdInfo,
@@ -24,7 +24,7 @@ _ADAPTERS = {
 def build_adapter(
     exchange_code: str, api_key: str, api_secret: str, testnet: bool = False
 ) -> P2PAdapter:
-    """Адаптер площадки по её коду."""
+    """Marketplace adapter by its code."""
     factory = _ADAPTERS.get(exchange_code)
     if factory is None:
         raise P2PError(f"P2P для биржи {exchange_code} не поддерживается.")

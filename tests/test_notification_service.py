@@ -26,11 +26,11 @@ async def dispatch(session, user, **kwargs):
     )
 
 
-# --- Умолчания ---
+# --- Defaults ---
 
 
 async def test_untouched_settings_mean_enabled(session, user):
-    """Пользователь, который ничего не настраивал, получает уведомления."""
+    """A user who hasn't configured anything gets notifications."""
     notification = await dispatch(session, user)
     await session.commit()
 
@@ -48,7 +48,7 @@ async def test_settings_matrix_defaults_to_all_on(session, user):
     assert all(matrix.values())
 
 
-# --- Настройки сужают каналы ---
+# --- Settings narrow the channels ---
 
 
 async def test_disabled_web_hides_from_feed_but_still_sends(session, user):
@@ -60,14 +60,14 @@ async def test_disabled_web_hides_from_feed_but_still_sends(session, user):
 
     assert notification is not None
     assert notification.show_web is False
-    # Telegram остался включённым, значит запись ждёт отправки.
+    # Telegram stayed enabled, so the row is waiting to be sent.
     assert notification.delivered_telegram is False
     assert await ns.recent(session, user) == []
     assert await ns.unread_count(session, user) == 0
 
 
 async def test_disabled_telegram_marks_delivered_immediately(session, user):
-    """Отключённый канал не должен висеть в очереди отправки."""
+    """A disabled channel must not linger in the send queue."""
     await ns.set_enabled(session, user.id, ns.KIND_ALERT, ns.CHANNEL_TELEGRAM, False)
     await session.commit()
 
@@ -90,7 +90,7 @@ async def test_both_channels_off_writes_nothing(session, user):
 
 
 async def test_settings_apply_per_event_kind(session, user):
-    """Выключенные сигналы не должны глушить алерты."""
+    """Disabled signals must not mute alerts."""
     for channel in ns.CHANNELS:
         await ns.set_enabled(session, user.id, ns.KIND_SIGNAL, channel, False)
     await session.commit()
@@ -100,7 +100,7 @@ async def test_settings_apply_per_event_kind(session, user):
 
 
 async def test_source_flags_cannot_widen_settings(session, user):
-    """Галочка отдельного алерта не включает канал, выключенный в настройках."""
+    """A single alert's checkbox doesn't enable a channel disabled in the settings."""
     await ns.set_enabled(session, user.id, ns.KIND_ALERT, ns.CHANNEL_TELEGRAM, False)
     await session.commit()
 
@@ -111,14 +111,14 @@ async def test_source_flags_cannot_widen_settings(session, user):
 
 
 async def test_source_flags_can_narrow_settings(session, user):
-    """А выключить канал для одного алерта — может."""
+    """But it can disable a channel for one alert."""
     notification = await dispatch(session, user, web=False)
     await session.commit()
 
     assert notification.show_web is False
 
 
-# --- Лента ---
+# --- Feed ---
 
 
 async def test_mark_all_read_ignores_hidden_rows(session, user):

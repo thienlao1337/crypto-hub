@@ -8,11 +8,11 @@ from app.models.types import BigPk, JsonB
 
 
 class AuditLog(Base):
-    """Действия пользователя над значимыми сущностями.
+    """User actions on significant entities.
 
-    Отдельно от login_events: там про вход, здесь про то, что делали
-    внутри — добавили ключ биржи, включили торговые права, перевели
-    стратегию в live. Такие вещи должны быть восстановимы постфактум.
+    Separate from login_events: that one is about signing in, this one about what was
+    done inside - an exchange key added, trading permissions enabled, a strategy
+    switched to live. Such things must be reconstructable after the fact.
     """
 
     __tablename__ = "audit_log"
@@ -26,7 +26,7 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     entity: Mapped[str | None] = mapped_column(String(64), nullable=True)
     entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Никогда не содержит секретов: только факт и безопасные детали.
+    # Never contains secrets: only the fact and safe details.
     payload: Mapped[dict | None] = mapped_column(JsonB, nullable=True)
 
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)

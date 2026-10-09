@@ -1,14 +1,13 @@
-"""Общий интерфейс к P2P-площадкам.
+"""Common interface to P2P marketplaces.
 
-ccxt сюда не годится: он про биржевой стакан, а P2P — доска объявлений со
-своими эндпоинтами, своей подписью и своей моделью данных. Поэтому свой
-протокол и по реализации на площадку.
+ccxt doesn't fit here: it is about an exchange order book, while P2P is an ad board with
+its own endpoints, its own signing and its own data model. Hence a separate protocol and
+one implementation per marketplace.
 
-Разбор ответов намеренно нетерпимый: если в ответе нет поля, из которого
-берётся цена, адаптер поднимает ошибку с именем этого поля, а не
-подставляет ноль или пропускает запись. Молча неверная цена на доске
-объявлений — это деньги клиента, и лучше громкий отказ на первом же
-запуске, чем правдоподобная цифра неизвестного происхождения.
+Response parsing is deliberately strict: if a response lacks the field the price comes
+from, the adapter raises an error naming that field instead of substituting zero or
+skipping the record. A silently wrong price on the ad board is the client's money, and a
+loud failure on the very first run is better than a plausible number of unknown origin.
 """
 
 from dataclasses import dataclass, field
@@ -18,24 +17,24 @@ from typing import Protocol
 
 
 class P2PError(Exception):
-    """Площадка не ответила или ответила отказом."""
+    """The marketplace didn't respond or refused."""
 
 
 class P2PAccessDenied(P2PError):
-    """Нет статуса рекламодателя или мерчанта.
+    """No advertiser or merchant status.
 
-    Отдельным типом, потому что чинится не повтором запроса, а заявкой на
-    площадке: сообщение должно вести человека туда, а не в логи.
+    A separate type because it isn't fixed by retrying the request but by applying on
+    the marketplace: the message should send the person there, not to the logs.
     """
 
 
 class P2PResponseError(P2PError):
-    """Ответ разобран не полностью — в нём нет нужного поля."""
+    """The response couldn't be fully parsed - a required field is missing."""
 
 
 @dataclass(frozen=True)
 class P2PAccess:
-    """Что площадка подтвердила по нашему ключу."""
+    """What the marketplace confirmed about our key."""
 
     is_allowed: bool
     error: str | None = None
@@ -43,7 +42,7 @@ class P2PAccess:
 
 @dataclass(frozen=True)
 class AdInfo:
-    """Наше объявление на площадке."""
+    """Our ad on the marketplace."""
 
     external_id: str
     side: str
@@ -60,12 +59,11 @@ class AdInfo:
 
 @dataclass(frozen=True)
 class BoardEntry:
-    """Чужое объявление на доске — сосед, относительно которого считаем.
+    """Someone else's ad on the board - the neighbour we price against.
 
-    completion_rate и orders_count нужны не для отчётности: по ним
-    отсеиваются объявления, за которыми не стоит гнаться. Свежий аккаунт
-    с одной сделкой может выставить любую цену, увести нас за собой и
-    ничего при этом не обслужить.
+    completion_rate and orders_count aren't for reporting: they filter out ads not worth
+    chasing. A fresh account with a single trade can set any price, drag us along and
+    serve nobody in the process.
     """
 
     price: Decimal
@@ -75,14 +73,14 @@ class BoardEntry:
     merchant: str | None = None
     completion_rate: Decimal | None = None
     orders_count: int | None = None
-    # Своё объявление на доске узнаём по идентификатору: перебивать
-    # самого себя — верный способ уехать в пол за несколько проходов.
+    # We recognize our own ad on the board by its id: outbidding yourself is a
+    # sure way to sink to the floor within a few passes.
     external_id: str | None = None
 
 
 @dataclass(frozen=True)
 class OrderInfo:
-    """Заказ по нашему объявлению."""
+    """An order on our ad."""
 
     external_id: str
     side: str
@@ -98,10 +96,10 @@ class OrderInfo:
 
 
 class P2PAdapter(Protocol):
-    """Что должна уметь площадка, чтобы бот с ней работал."""
+    """What a marketplace must support for the bot to work with it."""
 
     async def check_access(self) -> P2PAccess:
-        """Подтвердить, что ключу открыты P2P-эндпоинты."""
+        """Confirm that P2P endpoints are open to the key."""
 
     async def fetch_my_ads(self) -> list[AdInfo]:
         ...
@@ -109,7 +107,7 @@ class P2PAdapter(Protocol):
     async def fetch_board(
         self, *, side: str, asset: str, fiat: str, payment: str | None = None
     ) -> list[BoardEntry]:
-        """Чужие объявления той же стороны, что и наше."""
+        """Other ads on the same side as ours."""
 
     async def update_ad_price(self, external_id: str, price: Decimal) -> None:
         ...
@@ -118,18 +116,18 @@ class P2PAdapter(Protocol):
         ...
 
     async def release_order(self, external_id: str) -> None:
-        """Отпустить криптовалюту по заказу."""
+        """Release crypto for an order."""
 
     async def close(self) -> None:
         ...
 
 
 def require_decimal(payload: dict, *names: str, context: str) -> Decimal:
-    """Достать число, которое обязано быть в ответе.
+    """Get a number that must be present in the response.
 
-    Отсутствие такого поля означает, что формат ответа площадки изменился
-    или мы читаем не тот эндпоинт. Подставлять здесь значение по
-    умолчанию нельзя: на этих числах бот двигает цену.
+    A missing field means the marketplace's response format changed or we're reading the
+    wrong endpoint. Substituting a default here is not allowed: the bot moves the price
+    based on these numbers.
     """
     for name in names:
         if name in payload and payload[name] not in (None, ""):
@@ -153,10 +151,9 @@ def optional_decimal(payload: dict, *names: str) -> Decimal | None:
 
 
 def to_decimal(value) -> Decimal | None:
-    """Число из ответа площадки.
+    """A number from the marketplace response.
 
-    Через str, а не float: 0.1 в двоичной дроби не равно 0.1, а здесь
-    это цена.
+    Via str, not float: 0.1 as a binary fraction isn't 0.1, and here it's a price.
     """
     if value is None or value == "":
         return None

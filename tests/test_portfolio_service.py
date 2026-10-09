@@ -12,7 +12,7 @@ from tests import fakes
 
 @pytest_asyncio.fixture
 async def setup(session):
-    """Две биржи, пары к USDT, котировки и один пользователь с ключами."""
+    """Two exchanges, pairs against USDT, quotes and one user with keys."""
     bybit = Exchange(code="bybit", name="Bybit", sort_order=10)
     binance = Exchange(code="binance", name="Binance", sort_order=20)
     session.add_all([bybit, binance])
@@ -54,7 +54,7 @@ async def setup(session):
     return {"user": user, "accounts": accounts, "bybit": bybit, "binance": binance}
 
 
-# --- Синхронизация балансов ---
+# --- Balance sync ---
 
 
 async def test_sync_balances_stores_amounts(session, setup):
@@ -75,7 +75,7 @@ async def test_sync_balances_stores_amounts(session, setup):
 
 
 async def test_sold_asset_disappears_from_portfolio(session, setup):
-    """Проданная монета не должна висеть в портфеле вечно."""
+    """A sold coin must not hang in the portfolio forever."""
     account = setup["accounts"]["bybit"]
 
     await portfolio_service.sync_balances(
@@ -94,7 +94,7 @@ async def test_sold_asset_disappears_from_portfolio(session, setup):
     assert rows[0].total == Decimal("500")
 
 
-# --- Оценка ---
+# --- Valuation ---
 
 
 async def test_summary_values_and_shares(session, setup):
@@ -141,7 +141,7 @@ async def test_same_asset_on_two_exchanges_is_merged(session, setup):
 
 
 async def test_asset_without_stable_pair_is_reported_not_guessed(session, setup):
-    """Монету без пары к стейблу не оцениваем и говорим об этом прямо."""
+    """A coin without a pair against a stablecoin isn't valued, and we say so plainly."""
     await portfolio_service.sync_balances(
         session,
         setup["accounts"]["bybit"],
@@ -185,7 +185,7 @@ async def test_no_accounts_gives_empty_summary(session):
     assert summary.holdings == []
 
 
-# --- История стоимости ---
+# --- Value history ---
 
 
 async def test_snapshot_records_breakdown(session, setup):
@@ -228,7 +228,7 @@ async def test_change_is_computed_from_snapshots(session, setup):
 
 
 async def test_change_stays_empty_without_history(session, setup):
-    """Без снимка за прошлый период изменение не выдумывается."""
+    """Without a snapshot for the previous period the change isn't made up."""
     await portfolio_service.sync_balances(
         session,
         setup["accounts"]["bybit"],
@@ -242,7 +242,7 @@ async def test_change_stays_empty_without_history(session, setup):
     assert summary.change_7d_pct is None
 
 
-# --- Сделки ---
+# --- Trades ---
 
 
 async def test_sync_trades_is_idempotent(session, setup):
@@ -282,7 +282,7 @@ async def test_trades_are_listed_with_symbol_and_exchange(session, setup):
     assert trade.cost == Decimal("4800")
 
 
-# --- Сравнение бирж ---
+# --- Exchange comparison ---
 
 
 async def test_compare_across_exchanges_reports_spread(session, setup):

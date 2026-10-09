@@ -1,10 +1,10 @@
-"""Технические сигналы: расчёт, выдача и статистика точности.
+"""Technical signals: computation, issuing and accuracy statistics.
 
-Правило по умолчанию — пересечение EMA с фильтром по RSI. Набор
-индикаторов расширяется через config правила, без миграции схемы.
+The default rule is an EMA crossover with an RSI filter. The indicator set is extended
+through the rule's config, without schema migrations.
 
-Каждый сигнал обязан объяснять себя: в карточке пользователь видит не
-«buy», а причину и значения индикаторов на момент срабатывания.
+Every signal must explain itself: on the card the user sees not just "buy" but the
+reason and the indicator values at the moment it fired.
 """
 
 import logging
@@ -29,7 +29,7 @@ DEFAULT_CONFIG = {
     "rsi_oversold": 30,
 }
 
-# Сколько свечей нужно, чтобы индикаторы вышли на осмысленные значения.
+# How many candles indicators need to reach meaningful values.
 MIN_CANDLES = 60
 
 
@@ -43,15 +43,15 @@ class SignalDecision:
 
 
 def analyse(candles: list[Candle], config: dict | None = None) -> SignalDecision | None:
-    """Решение по последней закрытой свече.
+    """Decision on the last closed candle.
 
-    Чистая функция: ни базы, ни сети — поэтому её легко проверить на
-    придуманных рядах, а движок и график считают одно и то же.
+    Pure function: no database, no network - so it's easy to check on made-up series,
+    and the engine and the chart compute the same thing.
     """
     settings = {**DEFAULT_CONFIG, **(config or {})}
 
-    # Последняя свеча ещё формируется: решать по ней — значит выдавать
-    # сигнал, который исчезнет, если цена вернётся до закрытия периода.
+    # The last candle is still forming: deciding on it means issuing a signal
+    # that vanishes if the price comes back before the period closes.
     closed = [candle for candle in candles if candle.is_closed]
     if len(closed) < MIN_CANDLES:
         return None
@@ -118,7 +118,7 @@ def analyse(candles: list[Candle], config: dict | None = None) -> SignalDecision
     )
 
 
-# --- Работа с базой ---
+# --- Database operations ---
 
 
 async def active_rules(session: AsyncSession) -> list[SignalRule]:
@@ -134,13 +134,12 @@ async def evaluate_rule(
     market: Market,
     timeframe: Timeframe,
 ) -> Signal | None:
-    """Посчитать правило по одной паре и записать сигнал, если он новый.
+    """Evaluate the rule for one pair and record a signal if it's new.
 
-    Нейтральный вердикт записывается наравне с покупкой и продажей: он
-    возникает не на каждой свече, а только когда пересечение EMA было, но
-    RSI против входа. Это самое содержательное объяснение, какое выдаёт
-    движок, и выбрасывать его — значит показывать пользователю тишину там,
-    где система на самом деле подумала и решила не входить.
+    A neutral verdict is recorded on a par with buy and sell: it doesn't appear on every
+    candle, only when there was an EMA crossover but RSI is against entering. That's the
+    most informative explanation the engine produces, and discarding it would show the
+    user silence where the system actually thought it over and decided not to enter.
     """
     candles = await candle_service.stored_candles(session, market, timeframe, limit=300)
     decision = analyse(candles, rule.config)
@@ -148,7 +147,7 @@ async def evaluate_rule(
         return None
 
     if await _already_emitted(session, rule.id, market.id, decision.candle_time):
-        # Тот же сигнал на той же свече — движок мог пройти по ней дважды.
+        # The same signal on the same candle - the engine may have passed over it twice.
         return None
 
     signal = Signal(
@@ -172,7 +171,7 @@ async def recent_signals(
     user_id: int | None = None,
     limit: int = 50,
 ) -> list[tuple[Signal, str, str]]:
-    """Последние сигналы вместе с парой и таймфреймом."""
+    """Latest signals together with pair and timeframe."""
     query = (
         select(Signal, Market.symbol, Timeframe.code)
         .join(Market, Market.id == Signal.market_id)
@@ -182,7 +181,7 @@ async def recent_signals(
         .limit(limit)
     )
     if user_id is not None:
-        # Правила бывают общие (user_id пуст) и личные.
+        # Rules are either shared (user_id empty) or personal.
         query = query.where(
             (SignalRule.user_id == user_id) | (SignalRule.user_id.is_(None))
         )
@@ -191,14 +190,14 @@ async def recent_signals(
     return [(signal, symbol, code) for signal, symbol, code in result]
 
 
-# --- Оценка того, «сыграл» ли сигнал ---
+# --- Scoring whether a signal "played out" ---
 
 
 async def evaluate_outcomes(session: AsyncSession) -> int:
-    """Сверить старые сигналы с ценой по истечении горизонта.
+    """Check old signals against the price once the horizon has passed.
 
-    Это и есть материал для статистики точности: без честной оценки
-    «сколько раз сработало» карточка сигнала — просто мнение.
+    This is exactly the material for accuracy statistics: without an honest "how often
+    did it work", a signal card is just an opinion.
     """
     now = datetime.now(timezone.utc)
 
@@ -206,10 +205,11 @@ async def evaluate_outcomes(session: AsyncSession) -> int:
         select(Signal, SignalRule.evaluation_horizon_minutes)
         .join(SignalRule, SignalRule.id == Signal.rule_id)
         .outerjoin(SignalOutcome, SignalOutcome.signal_id == Signal.id)
-        # Нейтральный вердикт ничего не утверждает о направлении, поэтому
-        # и «сбыться» не может: в статистику точности он не идёт. Отсеиваем
-        # его запросом, а не в цикле, иначе такие сигналы вечно занимали бы
-        # окно выборки и вытесняли те, которые надо оценить.
+        # A neutral verdict says nothing about direction, so it can't "come
+        # true" either: it isn't counted in accuracy statistics. We filter it
+        # out in the query rather than in the loop, otherwise such signals
+        # would permanently occupy the sample window and crowd out the ones
+        # that need scoring.
         .where(SignalOutcome.id.is_(None), Signal.direction != DIRECTION_NEUTRAL)
         .limit(500)
     )
@@ -222,7 +222,7 @@ async def evaluate_outcomes(session: AsyncSession) -> int:
 
         price_after = await _price_at_horizon(session, signal.market_id, deadline)
         if price_after is None:
-            # Свечи на момент горизонта ещё нет — оценивать нечем.
+            # There's no candle at the horizon yet - nothing to score with.
             continue
 
         change = (price_after - signal.price) / signal.price * Decimal(100)
@@ -244,7 +244,7 @@ async def evaluate_outcomes(session: AsyncSession) -> int:
 
 
 async def accuracy(session: AsyncSession, *, rule_id: int | None = None) -> dict:
-    """Доля сигналов, ушедших в свою сторону."""
+    """Share of signals that moved in their direction."""
     query = select(
         func.count(SignalOutcome.id),
         func.sum(cast(SignalOutcome.is_success, Integer)),
@@ -284,11 +284,11 @@ async def _already_emitted(
 async def _price_at_horizon(
     session: AsyncSession, market_id: int, moment: datetime
 ) -> Decimal | None:
-    """Цена первой свечи на момент горизонта или позже.
+    """Price of the first candle at or after the horizon.
 
-    Брать последнюю свечу до горизонта нельзя: если данных за нужный
-    период нет, ею окажется свеча самого сигнала, и в статистику попадёт
-    выдуманный результат «изменение 0%».
+    Taking the last candle before the horizon is wrong: if there's no data for the
+    required period, that would be the signal's own candle, and a made-up "0% change"
+    result would land in the statistics.
     """
     result = await session.execute(
         select(Candle.close)

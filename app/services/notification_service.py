@@ -1,11 +1,11 @@
-"""Лента уведомлений веб-панели.
+"""Web panel notification feed.
 
-Доставка в Telegram живёт отдельно: здесь только запись события. Так
-сработавший алерт не теряется, даже если бот в этот момент недоступен.
+Telegram delivery lives separately: here we only record the event. That way a triggered
+alert isn't lost even if the bot is unavailable at that moment.
 
-Куда уведомление пойдёт, решается один раз — в dispatch(), при записи.
-Разносить это решение по местам отправки нельзя: тогда «выключено» в
-настройках означало бы разное в ленте и в боте.
+Where a notification goes is decided once - in dispatch(), when it is recorded.
+Spreading that decision across the senders isn't an option: then "disabled" in the
+settings would mean different things in the feed and in the bot.
 """
 
 from sqlalchemy import func, select, update
@@ -20,7 +20,7 @@ KIND_SYSTEM = "system"
 CHANNEL_WEB = "web"
 CHANNEL_TELEGRAM = "telegram"
 
-# Порядок задаёт и порядок колонок на странице настроек.
+# The order also defines the column order on the settings page.
 CHANNELS = (CHANNEL_WEB, CHANNEL_TELEGRAM)
 EVENT_KINDS = (KIND_ALERT, KIND_SIGNAL, KIND_SYSTEM)
 
@@ -52,15 +52,14 @@ async def dispatch(
     web: bool = True,
     telegram: bool = True,
 ) -> Notification | None:
-    """Записать уведомление с учётом настроек пользователя.
+    """Record a notification taking the user's settings into account.
 
-    web и telegram — разрешения со стороны источника: галочки самого
-    алерта. Настройки пользователя их только сужают. Включить канал,
-    выключенный в настройках, отдельный алерт не может — иначе «не
-    писать в Telegram» перестало бы что-либо значить.
+    web and telegram are permissions from the source side: the alert's own checkboxes.
+    User settings can only narrow them. A single alert can't enable a channel disabled
+    in the settings - otherwise "don't post to Telegram" would stop meaning anything.
 
-    Если не остаётся ни одного канала, запись не создаётся вовсе:
-    уведомление, которое некому показать, — мусор в таблице.
+    If no channel is left, no row is created at all: a notification nobody can see is
+    junk in the table.
     """
     show_web = web and await is_enabled(session, user_id, kind, CHANNEL_WEB)
     send_telegram = telegram and await is_enabled(session, user_id, kind, CHANNEL_TELEGRAM)
@@ -91,11 +90,10 @@ async def push(
     show_web: bool = True,
     send_telegram: bool = True,
 ) -> Notification:
-    """Записать уведомление без оглядки на настройки.
+    """Record a notification ignoring the settings.
 
-    Прямой вызов уместен для служебных сообщений, которые пользователь
-    отключить не может. Для событий из ТЗ — алертов и сигналов — нужен
-    dispatch().
+    A direct call is appropriate for service messages the user can't turn off. Events
+    from the spec - alerts and signals - need dispatch().
     """
     notification = Notification(
         user_id=user_id,
@@ -104,9 +102,9 @@ async def push(
         body=body,
         payload=payload,
         show_web=show_web,
-        # Отключённый канал помечаем доставленным сразу: очередь отправки
-        # не должна разбираться, кому что разрешено. Веб-пуш привязан к
-        # ленте — что не показывается в панели, то и не пушится.
+        # A disabled channel is marked delivered right away: the send queue
+        # shouldn't have to work out who is allowed what. Web push is tied to
+        # the feed - what isn't shown in the panel isn't pushed either.
         delivered_telegram=not send_telegram,
         delivered_push=not show_web,
     )
@@ -154,7 +152,7 @@ async def mark_all_read(session: AsyncSession, user: User) -> int:
 
 
 async def settings_matrix(session: AsyncSession, user: User) -> dict[tuple[str, str], bool]:
-    """Текущее состояние всех переключателей для страницы настроек."""
+    """Current state of all toggles for the settings page."""
     rows = await session.execute(
         select(
             NotificationSetting.event_type,
@@ -174,10 +172,10 @@ async def settings_matrix(session: AsyncSession, user: User) -> dict[tuple[str, 
 async def is_enabled(
     session: AsyncSession, user_id: int, event_type: str, channel: str
 ) -> bool:
-    """Включён ли канал для события.
+    """Whether a channel is enabled for an event.
 
-    Отсутствие настройки означает «включено»: пользователь, который
-    ничего не настраивал, должен получать уведомления, а не тишину.
+    A missing setting means "enabled": a user who hasn't configured anything should get
+    notifications, not silence.
     """
     result = await session.execute(
         select(NotificationSetting.is_enabled).where(

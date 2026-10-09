@@ -1,7 +1,7 @@
-"""Проверки мультиплексора потоков.
+"""Stream multiplexer tests.
 
-Главное свойство: сколько бы вкладок ни смотрело на пару, к бирже идёт
-одна подписка. Без этого биржа начинает резать соединения.
+The key property: no matter how many tabs are watching a pair, only one subscription
+goes to the exchange. Without it the exchange starts cutting connections.
 """
 
 import asyncio
@@ -12,7 +12,7 @@ from app.exchanges import ws_hub
 
 
 class FakeWsClient:
-    """Подделка ccxt.pro: отдаёт заготовленные кадры по очереди."""
+    """A fake ccxt.pro: returns prepared frames one by one."""
 
     def __init__(self) -> None:
         self.order_book_calls = 0
@@ -42,7 +42,7 @@ class FakeWsClient:
 
 
 class FakeCcxtPro:
-    """Заглушка модуля ccxt.pro: отдаёт один и тот же клиент."""
+    """A stub of the ccxt.pro module: returns the same client every time."""
 
     def __init__(self, client: FakeWsClient) -> None:
         self._client = client
@@ -53,10 +53,10 @@ class FakeCcxtPro:
 
 @pytest.fixture
 def hub(monkeypatch):
-    """Свежий мультиплексор с поддельной биржей.
+    """A fresh multiplexer with a fake exchange.
 
-    Подменяется именно модуль ccxt.pro, а не метод _client: иначе тест
-    обошёл бы регистрацию соединения, на которой держится закрытие.
+    It's the ccxt.pro module that gets replaced, not the _client method: otherwise the
+    test would bypass connection registration, which closing relies on.
     """
     client = FakeWsClient()
     monkeypatch.setattr(ws_hub, "ccxtpro", FakeCcxtPro(client))
@@ -67,7 +67,7 @@ def hub(monkeypatch):
 
 
 async def take(stream, count: int) -> list[dict]:
-    """Забрать несколько кадров и отпустить подписку."""
+    """Take a few frames and release the subscription."""
     frames = []
     async for payload in stream:
         frames.append(payload)
@@ -94,7 +94,7 @@ async def test_trade_frames_are_normalized(hub):
 
 
 async def test_two_subscribers_share_one_exchange_connection(hub):
-    """Ради этого мультиплексор и написан."""
+    """This is what the multiplexer was written for."""
     first = hub.subscribe("bybit", "BTC/USDT", ws_hub.CHANNEL_ORDER_BOOK)
     second = hub.subscribe("bybit", "BTC/USDT", ws_hub.CHANNEL_ORDER_BOOK)
 
@@ -106,7 +106,7 @@ async def test_two_subscribers_share_one_exchange_connection(hub):
 
 
 async def test_new_subscriber_gets_last_frame_immediately(hub):
-    """Открывший вкладку не должен смотреть в пустой стакан до обновления."""
+    """Someone who opens a tab shouldn't stare at an empty order book until the next update."""
     await take(hub.subscribe("bybit", "BTC/USDT", ws_hub.CHANNEL_ORDER_BOOK), 1)
 
     stream = hub.subscribe("bybit", "BTC/USDT", ws_hub.CHANNEL_ORDER_BOOK)
@@ -118,7 +118,7 @@ async def test_new_subscriber_gets_last_frame_immediately(hub):
 
 
 async def test_stream_lingers_after_last_subscriber(hub):
-    """Перезагрузка страницы не должна рвать подписку на бирже."""
+    """A page reload must not break the subscription on the exchange."""
     await take(hub.subscribe("bybit", "BTC/USDT", ws_hub.CHANNEL_ORDER_BOOK), 1)
 
     assert len(hub._streams) == 1
@@ -146,7 +146,7 @@ async def test_close_releases_everything(hub):
 
 
 async def test_slow_subscriber_does_not_block_others(hub):
-    """Медленный клиент теряет старые кадры, а не тормозит поток."""
+    """A slow client loses old frames instead of slowing down the stream."""
     queue: asyncio.Queue = asyncio.Queue(maxsize=ws_hub.QUEUE_SIZE)
     stream = ws_hub._Stream(key=("bybit", "BTC/USDT", ws_hub.CHANNEL_ORDER_BOOK))
     stream.subscribers.add(queue)
@@ -155,6 +155,6 @@ async def test_slow_subscriber_does_not_block_others(hub):
         hub._broadcast(stream, {"type": "orderbook", "n": index})
 
     assert queue.qsize() == ws_hub.QUEUE_SIZE
-    # В очереди остались последние кадры: свежий срез важнее истории.
+    # The latest frames remain in the queue: a fresh snapshot matters more than history.
     newest = queue.get_nowait()
     assert newest["n"] == 3

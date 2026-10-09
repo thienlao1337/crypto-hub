@@ -1,17 +1,15 @@
-"""Технические индикаторы.
+"""Technical indicators.
 
-Чистые функции над рядом цен: ни базы, ни сети — поэтому их легко
-проверять на эталонных значениях, а движок сигналов может считать то же
-самое, что рисует график.
+Pure functions over a price series: no database, no network - so they're easy to check
+against reference values, and the signal engine can compute exactly what the chart
+draws.
 
-Здесь сознательно используется float, а не Decimal. Индикаторы — это
-статистика по ценам, а не деньги: скользящая средняя не обязана сходиться
-до последнего знака, зато вычисления идут в разы быстрее. Decimal
-остаётся там, где считаются балансы и стоимость портфеля.
+float is used here on purpose, not Decimal. Indicators are statistics over prices, not
+money: a moving average doesn't have to match to the last digit, and the computation is
+several times faster. Decimal stays where balances and portfolio value are calculated.
 
-Реализовано своими руками, а не библиотекой: это около сотни строк,
-которые не отстают от новых версий pandas и покрыты тестами на понятных
-значениях.
+Implemented by hand rather than with a library: it's about a hundred lines that don't
+lag behind new pandas versions and are covered by tests on clear values.
 """
 
 from dataclasses import dataclass
@@ -34,28 +32,28 @@ class BollingerResult:
 
 
 def sma(values: pd.Series, period: int) -> pd.Series:
-    """Простая скользящая средняя."""
+    """Simple moving average."""
     _check_period(period)
     return values.rolling(window=period, min_periods=period).mean()
 
 
 def ema(values: pd.Series, period: int) -> pd.Series:
-    """Экспоненциальная скользящая средняя.
+    """Exponential moving average.
 
-    adjust=False — рекурсивная форма, та же, что у торговых терминалов:
-    EMA(t) = price(t) * k + EMA(t-1) * (1 - k), где k = 2 / (period + 1).
-    При adjust=True значения в начале ряда заметно расходятся с тем, что
-    пользователь видит в TradingView.
+    adjust=False is the recursive form, the same one trading terminals use:
+    EMA(t) = price(t) * k + EMA(t-1) * (1 - k), where k = 2 / (period + 1).
+    With adjust=True the values at the start of the series noticeably differ from what
+    the user sees in TradingView.
     """
     _check_period(period)
     return values.ewm(span=period, adjust=False).mean()
 
 
 def rsi(values: pd.Series, period: int = 14) -> pd.Series:
-    """Индекс относительной силы по Уайлдеру.
+    """Wilder's Relative Strength Index.
 
-    Сглаживание — экспоненциальное с alpha = 1 / period, как в оригинале,
-    а не простое среднее: иначе значения разойдутся с биржевыми графиками.
+    Smoothing is exponential with alpha = 1 / period, as in the original, not a simple
+    average: otherwise the values diverge from exchange charts.
     """
     _check_period(period)
 
@@ -66,8 +64,8 @@ def rsi(values: pd.Series, period: int = 14) -> pd.Series:
     avg_gain = gain.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
     avg_loss = loss.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
 
-    # Ряд без единого падения даёт нулевой знаменатель — это не ошибка,
-    # а честные 100: сила покупателей не встретила сопротивления.
+    # A series with no drops at all gives a zero denominator - not an error but
+    # an honest 100: buying pressure met no resistance.
     rs = avg_gain / avg_loss
     result = 100 - (100 / (1 + rs))
     return result.where(avg_loss != 0, 100.0).where(avg_gain.notna(), float("nan"))
@@ -79,7 +77,7 @@ def macd(
     slow: int = 26,
     signal: int = 9,
 ) -> MacdResult:
-    """Схождение и расхождение скользящих средних."""
+    """Moving Average Convergence Divergence."""
     _check_period(fast)
     _check_period(slow)
     _check_period(signal)
@@ -96,11 +94,11 @@ def macd(
 
 
 def bollinger(values: pd.Series, period: int = 20, deviations: float = 2.0) -> BollingerResult:
-    """Полосы Боллинджера.
+    """Bollinger Bands.
 
-    Отклонение считается по всей выборке окна (ddof=0), как в торговых
-    терминалах, а не по несмещённой оценке — иначе полосы окажутся чуть
-    шире привычных.
+    Deviation is computed over the whole window population (ddof=0), as in trading
+    terminals, not the unbiased estimate - otherwise the bands come out slightly wider
+    than usual.
     """
     _check_period(period)
 
@@ -110,12 +108,11 @@ def bollinger(values: pd.Series, period: int = 20, deviations: float = 2.0) -> B
 
 
 def ema_cross(values: pd.Series, fast: int, slow: int) -> pd.Series:
-    """Направление пересечения быстрой и медленной EMA.
+    """Direction of the crossover between the fast and slow EMA.
 
-    1 — быстрая пересекла медленную снизу вверх на этой свече,
-    -1 — сверху вниз, 0 — пересечения не было. Именно событие, а не
-    факт «быстрая выше медленной»: иначе сигнал повторялся бы на каждой
-    свече, пока сохраняется расположение линий.
+    1 - the fast one crossed the slow one upwards on this candle, -1 - downwards, 0 - no
+    crossover. It's the event, not the fact "fast is above slow": otherwise the signal
+    would repeat on every candle while the lines stay in that order.
     """
     fast_line = ema(values, fast)
     slow_line = ema(values, slow)
@@ -127,19 +124,19 @@ def ema_cross(values: pd.Series, fast: int, slow: int) -> pd.Series:
     result = pd.Series(0, index=values.index, dtype="int64")
     result[crossed_up] = 1
     result[crossed_down] = -1
-    # На первой свече сравнивать не с чем.
+    # On the first candle there's nothing to compare with.
     if len(result):
         result.iloc[0] = 0
     return result
 
 
 def to_series(closes) -> pd.Series:
-    """Собрать ряд для расчётов из чего угодно числового (в том числе Decimal)."""
+    """Build a series for calculations from anything numeric (Decimal included)."""
     return pd.Series([float(value) for value in closes], dtype="float64")
 
 
 def last_value(series: pd.Series) -> float | None:
-    """Последнее осмысленное значение ряда или None, если данных мало."""
+    """The last meaningful value of the series, or None if there's too little data."""
     if series is None or series.empty:
         return None
     value = series.iloc[-1]

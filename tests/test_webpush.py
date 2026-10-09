@@ -15,7 +15,7 @@ ENDPOINT = "https://push.example.com/subscription/abc"
 
 @pytest.fixture
 def vapid(monkeypatch):
-    """Ключи VAPID на время теста — настоящие, но одноразовые."""
+    """VAPID keys for the duration of the test - real, but single-use."""
     public, private = webpush.generate_keys()
     settings = get_settings()
     monkeypatch.setattr(settings, "vapid_public_key", public, raising=False)
@@ -33,11 +33,11 @@ async def user(session):
     return person
 
 
-# --- Ключи ---
+# --- Keys ---
 
 
 def test_generated_public_key_is_uncompressed_point():
-    """browser.pushManager.subscribe принимает только такой вид ключа."""
+    """browser.pushManager.subscribe accepts only this form of key."""
     public, private = webpush.generate_keys()
 
     raw = base64.urlsafe_b64decode(public + "=" * (-len(public) % 4))
@@ -60,7 +60,7 @@ def test_enabled_with_keys(vapid):
     assert webpush.is_configured() is True
 
 
-# --- Подписки ---
+# --- Subscriptions ---
 
 
 async def test_subscribe_stores_keys(session, user):
@@ -75,7 +75,7 @@ async def test_subscribe_stores_keys(session, user):
 
 
 async def test_resubscribe_updates_instead_of_duplicating(session, user):
-    """Иначе одно уведомление приходило бы на устройство дважды."""
+    """Otherwise one notification would arrive on a device twice."""
     await webpush.subscribe(session, user, endpoint=ENDPOINT, p256dh="old", auth="a")
     await webpush.subscribe(session, user, endpoint=ENDPOINT, p256dh="new", auth="b")
     await session.commit()
@@ -102,7 +102,7 @@ async def test_unsubscribe_removes_own_only(session, user):
     assert await webpush.list_subscriptions(session, user) == []
 
 
-# --- Отправка ---
+# --- Sending ---
 
 
 async def test_send_is_disabled_without_keys(monkeypatch):
@@ -115,7 +115,7 @@ async def test_send_is_disabled_without_keys(monkeypatch):
 
 
 def test_gone_status_marks_subscription_dead(vapid, monkeypatch):
-    """404 и 410 означают «устройство отписалось», повторять нечего."""
+    """404 and 410 mean "the device unsubscribed" - nothing to retry."""
 
     class FakeResponse:
         status_code = 410
@@ -148,7 +148,7 @@ def test_other_errors_do_not_kill_subscription(vapid, monkeypatch):
 
 
 def test_error_text_does_not_leak_push_service_response(vapid, monkeypatch):
-    """В базу кладём короткое, подробности остаются в логах."""
+    """A short version goes to the database; the details stay in the logs."""
 
     class FakeResponse:
         status_code = 400
@@ -164,7 +164,7 @@ def test_error_text_does_not_leak_push_service_response(vapid, monkeypatch):
     assert "eyJhbGciOi" not in (result.error or "")
 
 
-# --- Доставка из очереди ---
+# --- Delivery from the queue ---
 
 
 async def test_delivery_skipped_when_push_not_configured(monkeypatch):
@@ -176,7 +176,7 @@ async def test_delivery_skipped_when_push_not_configured(monkeypatch):
 
 
 async def test_hidden_notification_is_not_queued_for_push(session, user):
-    """Что не показывается в ленте, то и не пушится."""
+    """What isn't shown in the feed isn't pushed either."""
     await ns.push(
         session, user_id=user.id, kind=ns.KIND_ALERT, title="t", body="b", show_web=False
     )
@@ -219,7 +219,7 @@ async def test_delivery_sends_to_every_device_and_marks_done(session, user, vapi
 
 
 async def test_delivery_drops_dead_subscription(session, user, vapid, monkeypatch):
-    """Мёртвые подписки копились бы при каждой смене браузера."""
+    """Dead subscriptions would pile up with every browser change."""
     await webpush.subscribe(session, user, endpoint=ENDPOINT, p256dh="k", auth="a")
     await ns.push(session, user_id=user.id, kind=ns.KIND_ALERT, title="t", body="b")
     await session.commit()
@@ -249,17 +249,17 @@ async def test_delivery_keeps_subscription_on_temporary_error(session, user, vap
 
     subscription = (await session.execute(select(PushSubscription))).scalar_one()
     assert subscription.last_error == "Push-сервис ответил 500."
-    # Повторять не станем: пуш ценен свежестью.
+    # We won't retry: push is valuable for being fresh.
     row = (await session.execute(select(Notification))).scalar_one()
     assert row.delivered_push is True
 
 
 def _use_test_session(monkeypatch, session):
-    """Подсунуть задаче доставки сессию теста.
+    """Hand the delivery job the test session.
 
-    Фоновая задача открывает свои сессии через session_scope, а тестовая
-    база живёт во внешней транзакции — без подмены задача не увидела бы
-    ничего из того, что тест только что записал.
+    The background job opens its own sessions via session_scope, while the test database
+    lives in an outer transaction - without the substitution the job wouldn't see
+    anything the test just wrote.
     """
     from contextlib import asynccontextmanager
 
@@ -270,11 +270,11 @@ def _use_test_session(monkeypatch, session):
     monkeypatch.setattr(delivery, "session_scope", scope)
 
 
-# --- Настоящий запрос к push-сервису ---
+# --- A real request to the push service ---
 
 
 def make_receiver_keys() -> tuple[str, str]:
-    """Ключи, какие выдал бы браузер: точка P-256 и случайный секрет."""
+    """Keys like a browser would issue: a P-256 point and a random secret."""
     import os
 
     from cryptography.hazmat.primitives.asymmetric import ec
@@ -290,12 +290,12 @@ def make_receiver_keys() -> tuple[str, str]:
 
 
 def test_request_to_push_service_is_signed_and_encrypted(vapid):
-    """Проверка сборки запроса без браузера.
+    """Checking request assembly without a browser.
 
-    Поднимаем свой «push-сервис» и смотрим, что уходит: подпись VAPID,
-    шифрование по RFC 8291 и отсутствие открытого текста в теле. Это
-    единственное, что можно проверить без настоящей подписки браузера,
-    и именно здесь ломается интеграция, если формат ключей неверен.
+    We spin up our own "push service" and look at what goes out: the VAPID signature,
+    RFC 8291 encryption and no plain text in the body. That's the only thing that can be
+    checked without a real browser subscription, and it's exactly where the integration
+    breaks if the key format is wrong.
     """
     import threading
     from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -333,10 +333,10 @@ def test_request_to_push_service_is_signed_and_encrypted(vapid):
     headers = {key.lower(): value for key, value in captured["headers"].items()}
     assert headers["content-encoding"] == "aes128gcm"
     assert headers["authorization"].startswith("vapid ")
-    # k= несёт наш публичный ключ: по нему push-сервис проверяет подпись.
+    # k= carries our public key: the push service uses it to verify the signature.
     assert "t=" in headers["authorization"] and "k=" in headers["authorization"]
-    # TTL по умолчанию нулевой: push-сервис выбросил бы уведомление,
-    # если устройство в этот момент спит.
+    # The default TTL is zero: the push service would drop the notification if
+    # the device is asleep at that moment.
     assert int(headers["ttl"]) == webpush.TTL_SECONDS
 
     body = captured["body"]

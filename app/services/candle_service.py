@@ -1,8 +1,8 @@
-"""Свечи: хранение, догрузка с биржи и расчёт индикаторов по ним.
+"""Candles: storage, backfill from the exchange and indicator calculation on them.
 
-График и движок сигналов берут данные отсюда, а не ходят на биржу
-каждый сам: иначе десяток открытых вкладок выбирает лимит запросов, а
-сигналы считаются по чуть другим данным, чем видит пользователь.
+The chart and the signal engine take data from here rather than each going to the
+exchange: otherwise a dozen open tabs would use up the request limit, and signals would
+be computed on slightly different data than the user sees.
 """
 
 import logging
@@ -20,7 +20,7 @@ from app.services import indicators
 logger = logging.getLogger(__name__)
 
 DEFAULT_LIMIT = 500
-# Запас свежести: если последняя свеча моложе этого, на биржу не идём.
+# Freshness margin: if the latest candle is younger than this, we don't go to the exchange.
 STALE_FACTOR = 1.0
 
 
@@ -43,7 +43,7 @@ async def stored_candles(
     *,
     limit: int = DEFAULT_LIMIT,
 ) -> list[Candle]:
-    """Последние свечи из базы, в хронологическом порядке."""
+    """Latest candles from the database, in chronological order."""
     result = await session.execute(
         select(Candle)
         .where(Candle.market_id == market.id, Candle.timeframe_id == timeframe.id)
@@ -54,7 +54,7 @@ async def stored_candles(
 
 
 async def is_fresh(session: AsyncSession, market: Market, timeframe: Timeframe) -> bool:
-    """Есть ли в базе свеча за текущий период."""
+    """Whether the database has a candle for the current period."""
     last_time = await session.scalar(
         select(Candle.open_time)
         .where(Candle.market_id == market.id, Candle.timeframe_id == timeframe.id)
@@ -78,10 +78,10 @@ async def sync_candles(
     *,
     limit: int = DEFAULT_LIMIT,
 ) -> int:
-    """Догрузить свечи с биржи и записать недостающие.
+    """Backfill candles from the exchange and write the missing ones.
 
-    Последняя свеча периода ещё не закрыта и меняется, поэтому она
-    перезаписывается при каждом проходе, а закрытые — только добавляются.
+    The period's last candle isn't closed yet and keeps changing, so it is overwritten
+    on every pass, while closed ones are only appended.
     """
     bars = await adapter.fetch_ohlcv(market.symbol, timeframe.code, limit=limit)
     if not bars:
@@ -96,7 +96,7 @@ async def sync_candles(
     )
     by_time = {_as_utc(row.open_time): row for row in existing.scalars()}
 
-    # Свеча текущего периода ещё формируется: биржа отдаёт её последней.
+    # The current period's candle is still forming: the exchange returns it last.
     last_open_time = bars[-1].open_time
     saved = 0
 
@@ -120,7 +120,7 @@ async def sync_candles(
             )
             saved += 1
         elif not row.is_closed:
-            # Обновляем только незакрытую: у закрытой значения окончательны.
+            # Update only the open candle: a closed one has final values.
             row.open = bar.open
             row.high = bar.high
             row.low = bar.low
@@ -140,18 +140,18 @@ async def candles_for_chart(
     *,
     limit: int = DEFAULT_LIMIT,
 ) -> list[Candle]:
-    """Свечи для отрисовки: из базы, при необходимости — с догрузкой.
+    """Candles for rendering: from the database, backfilled if needed.
 
-    adapter_factory передаётся отдельно, чтобы сервис не знал про ccxt и
-    оставался проверяемым без сети.
+    adapter_factory is passed separately so the service doesn't know about ccxt and
+    stays testable without the network.
     """
     if adapter_factory is not None and not await is_fresh(session, market, timeframe):
         adapter = adapter_factory()
         try:
             await sync_candles(session, market, timeframe, adapter, limit=limit)
         except Exception as exc:
-            # Устаревшие свечи лучше пустого графика: покажем что есть.
-            logger.warning("Не удалось догрузить свечи %s: %s", market.symbol, exc)
+            # Stale candles are better than an empty chart: show what we have.
+            logger.warning("Could not backfill candles for %s: %s", market.symbol, exc)
         finally:
             await adapter.close()
 
@@ -159,10 +159,10 @@ async def candles_for_chart(
 
 
 def compute_indicators(candles: list[Candle], config: dict) -> dict:
-    """Посчитать выбранные индикаторы по ряду свечей.
+    """Compute the selected indicators over a candle series.
 
-    Возвращает готовые к отрисовке ряды: значения выравнены по свечам,
-    недостающие в начале — None, чтобы клиент не гадал о смещении.
+    Returns series ready for rendering: values are aligned to candles, with None for the
+    missing ones at the start, so the client doesn't have to guess the offset.
     """
     if not candles:
         return {}
@@ -197,13 +197,13 @@ def compute_indicators(candles: list[Candle], config: dict) -> dict:
 
 
 def _points(times: list[int], series) -> list[dict]:
-    """Ряд в виде точек для графика.
+    """A series as chart points.
 
-    Там, где значения ещё нет (индикатору не хватило истории), отдаём
-    точку без value. Библиотека графиков считает такие точки пустыми и
-    держит по ним ось времени: иначе RSI(14) начинался бы на четырнадцать
-    свечей правее цены, и панели под графиком показывали бы другой
-    участок времени, чем свечи над ними.
+    Where there's no value yet (the indicator lacked history) we return a point without
+    value. The charting library treats such points as empty and keeps the time axis for
+    them: otherwise RSI(14) would start fourteen candles to the right of the price, and
+    the panels below the chart would show a different time range than the candles above
+    them.
     """
     points = []
     for moment, value in zip(times, series):

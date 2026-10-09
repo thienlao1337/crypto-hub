@@ -1,9 +1,8 @@
-"""Адаптер биржи: выставление ордера и разбор ошибок.
+"""Exchange adapter: placing orders and parsing errors.
 
-Это единственный путь, по которому уходят настоящие деньги, и
-единственный, который нельзя прогнать без ключей. Поэтому здесь стоит
-подделка биржи: она не проверит, что Bybit нас поймёт, но проверит, что
-мы отправляем, и что показываем пользователю, когда биржа отказала.
+This is the only path real money goes through, and the only one that can't be exercised
+without keys. Hence a fake exchange here: it won't verify that Bybit understands us, but
+it verifies what we send and what we show the user when the exchange refuses.
 """
 
 from decimal import Decimal
@@ -21,12 +20,12 @@ from app.exchanges.base import (
 
 SYMBOL = "BTC/USDT"
 
-# Шаг лота Bybit по BTC: объём округляется вниз до тысячных.
+# Bybit's BTC lot step: the amount is rounded down to thousandths.
 LOT_STEP = Decimal("0.001")
 
 
 class FakeExchange:
-    """Биржа, которая записывает, что ей прислали."""
+    """An exchange that records what it was sent."""
 
     def __init__(self, config: dict) -> None:
         self.config = config
@@ -43,7 +42,7 @@ class FakeExchange:
         return self.markets
 
     def amount_to_precision(self, symbol, amount):
-        """То же, что делает ccxt: усечение до шага лота."""
+        """The same thing ccxt does: truncation to the lot step."""
         if not self.markets:
             raise real_ccxt.ExchangeError("markets not loaded")
         step = Decimal(str(LOT_STEP))
@@ -76,11 +75,11 @@ class FakeExchange:
 
 
 class FakeCcxtModule:
-    """Модуль ccxt с подменённой фабрикой бирж.
+    """The ccxt module with a substituted exchange factory.
 
-    Подменяется именно модуль, а не self._client: адаптер создаёт клиента
-    в конструкторе, и подмена после создания не проверяла бы настройки, с
-    которыми он создан.
+    It's the module that gets replaced, not self._client: the adapter creates the client
+    in its constructor, and replacing it afterwards wouldn't test the settings it was
+    created with.
     """
 
     def __init__(self, exchange: FakeExchange) -> None:
@@ -93,7 +92,7 @@ class FakeCcxtModule:
         return self._exchange
 
     def __getattr__(self, name):
-        # Классы исключений берём настоящие: адаптер ловит именно их.
+        # Real exception classes are used: the adapter catches exactly those.
         return getattr(real_ccxt, name)
 
 
@@ -108,14 +107,14 @@ def adapter(**kwargs) -> ccxt_client.CcxtAdapter:
     return ccxt_client.CcxtAdapter("bybit", api_key="k", api_secret="s", **kwargs)
 
 
-# --- Выставление ордера ---
+# --- Placing an order ---
 
 
 async def test_amount_is_rounded_to_lot_step(exchange):
-    """Объём из расчёта доли депозита биржа не примет как есть.
+    """The exchange won't accept an amount from a deposit-share calculation as is.
 
-    0.05358804425365755979124688685 — это результат деления, а биржа
-    принимает только кратное своему шагу лота.
+    0.05358804425365755979124688685 is the result of a division, while the exchange only
+    accepts multiples of its lot step.
     """
     async with adapter() as api:
         await api.create_market_order(
@@ -128,7 +127,7 @@ async def test_amount_is_rounded_to_lot_step(exchange):
 
 
 async def test_markets_are_loaded_before_rounding(exchange):
-    """Без справочника инструментов ccxt не знает шага лота."""
+    """Without the instrument list ccxt doesn't know the lot step."""
     async with adapter() as api:
         await api.create_market_order(SYMBOL, "buy", Decimal("1"))
 
@@ -136,7 +135,7 @@ async def test_markets_are_loaded_before_rounding(exchange):
 
 
 async def test_amount_below_lot_step_is_refused_before_exchange(exchange):
-    """Ноль после округления отправлять бессмысленно и опасно."""
+    """Sending zero after rounding is pointless and dangerous."""
     async with adapter() as api:
         with pytest.raises(ExchangeError) as info:
             await api.create_market_order(SYMBOL, "buy", Decimal("0.0004"))
@@ -176,7 +175,7 @@ async def test_adapter_closes_session(exchange):
     assert exchange.closed is True
 
 
-# --- Ошибки биржи наружу ---
+# --- Exchange errors on the outside ---
 
 
 @pytest.mark.parametrize(
@@ -198,10 +197,10 @@ async def test_exchange_errors_are_translated(exchange, raised, expected):
 
 
 async def test_raw_ccxt_text_does_not_reach_the_user(exchange):
-    """В тексте ccxt приходит URL запроса вместе с подписью.
+    """The ccxt message contains the request URL together with the signature.
 
-    Он попадает в last_error и оттуда на экран, где не объясняет ничего,
-    зато показывает лишнее.
+    It ends up in last_error and from there on screen, where it explains nothing but
+    shows too much.
     """
     secret_looking = (
         "bybit GET https://api.bybit.com/v5/order?api_key=AAA&sign=deadbeef "

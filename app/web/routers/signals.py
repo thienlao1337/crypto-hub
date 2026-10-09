@@ -1,4 +1,4 @@
-"""Сигналы: лента, обоснование и статистика точности."""
+"""Signals: feed, justification and accuracy statistics."""
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse

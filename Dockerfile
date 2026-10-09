@@ -10,22 +10,22 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Процессы работают не от root: панель ходит в интернет и разбирает
-# внешние данные, и любая ошибка в этом коде не должна сразу давать
-# полные права внутри контейнера. Записывать на диск приложению нечего,
-# поэтому ограничение ничего не ломает.
+# Processes don't run as root: the panel talks to the internet and parses
+# external data, and any bug in that code shouldn't immediately grant full
+# privileges inside the container. The app has nothing to write to disk, so the
+# restriction breaks nothing.
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin app     && chown -R app:app /srv
 USER app
 
-# Образ один на все процессы — команда задаётся в docker-compose.
+# One image for all processes - the command is set in docker-compose.
 CMD ["uvicorn", "app.web.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 
-# Стадия для тестов: тот же код плюс dev-зависимости. В прод-образ они
-# не попадают, но прогон идёт в том же окружении, что и рантайм.
+# Test stage: the same code plus dev dependencies. They don't end up in the
+# production image, but tests run in the same environment as the runtime.
 FROM base AS dev
 
-# Установка пакетов — единственное, ради чего здесь нужен root.
+# Installing packages is the only reason root is needed here.
 USER root
 COPY requirements-dev.txt .
 RUN pip install --no-cache-dir -r requirements-dev.txt     && chown -R app:app /srv

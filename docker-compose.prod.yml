@@ -1,20 +1,20 @@
-# Надстройка для прода:
+# Production overlay:
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
-# Отличия от локального запуска: снаружи доступен только Caddy, он же
-# держит HTTPS; веб-порт наружу не публикуется.
+# Differences from a local run: only Caddy is reachable from outside, and it
+# also handles HTTPS; the web port isn't published externally.
 
 services:
   web:
-    # Порт остаётся доступен внутри сети compose, но не на хосте:
-    # снаружи в него ходит только Caddy.
+    # The port stays reachable inside the compose network but not on the host:
+    # only Caddy reaches it from outside.
     ports: !override []
     environment:
       POSTGRES_HOST: db
       SESSION_SECURE_COOKIE: "true"
 
   db:
-    # База наружу не смотрит ни при каких условиях.
+    # The database is never exposed to the outside, under any circumstances.
     ports: !override []
 
   caddy:

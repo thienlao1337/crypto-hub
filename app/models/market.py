@@ -21,14 +21,14 @@ MARKET_TYPE_SWAP = "swap"
 
 
 class Asset(Base):
-    """Монета/токен сам по себе, вне привязки к паре и бирже."""
+    """A coin/token on its own, not tied to a pair or exchange."""
 
     __tablename__ = "assets"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     symbol: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
-    # Нужен для подтягивания капитализации и иконок из CoinGecko.
+    # Needed to pull market cap and icons from CoinGecko.
     coingecko_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     icon_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -36,11 +36,11 @@ class Asset(Base):
 
 
 class Market(Base):
-    """Торговая пара на конкретной бирже.
+    """A trading pair on a specific exchange.
 
-    Одна и та же пара на Bybit и Binance — две разные записи: у них
-    расходятся цена, спред и параметры лота, и сравнение бирж из ТЗ
-    строится именно на этом.
+    The same pair on Bybit and Binance is two separate rows: price, spread and lot
+    parameters differ, and the exchange comparison from the spec is built exactly on
+    that.
     """
 
     __tablename__ = "markets"
@@ -51,8 +51,9 @@ class Market(Base):
     base_asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id"), nullable=False)
     quote_asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id"), nullable=False)
 
-    # symbol — унифицированный вид ccxt (BTC/USDT), raw_symbol — как у
-    # биржи (BTCUSDT). Первый для логики, второй для сырых WS-подписок.
+    # symbol is the unified ccxt form (BTC/USDT), raw_symbol is the exchange's
+    # own (BTCUSDT). The first is for logic, the second for raw WS
+    # subscriptions.
     symbol: Mapped[str] = mapped_column(String(64), nullable=False)
     raw_symbol: Mapped[str] = mapped_column(String(64), nullable=False)
     market_type: Mapped[str] = mapped_column(String(16), default=MARKET_TYPE_SPOT, nullable=False)
@@ -71,7 +72,7 @@ class Market(Base):
 
 
 class Timeframe(Base):
-    """Справочник таймфреймов — редактируется из админки."""
+    """Timeframe reference table - edited from the admin panel."""
 
     __tablename__ = "timeframes"
 
@@ -84,10 +85,10 @@ class Timeframe(Base):
 
 
 class Candle(Base):
-    """Свеча OHLCV.
+    """An OHLCV candle.
 
-    Храним только по парам из watchlist и правил сигналов — иначе таблица
-    растёт неограниченно. Старые свечи подчищает задача ретеншна.
+    Stored only for pairs from watchlists and signal rules - otherwise the table grows
+    without bound. Old candles are cleaned up by the retention job.
     """
 
     __tablename__ = "candles"
@@ -107,15 +108,15 @@ class Candle(Base):
     close: Mapped[Decimal] = mapped_column(Price, nullable=False)
     volume: Mapped[Decimal] = mapped_column(Amount, nullable=False)
 
-    # Незакрытая свеча обновляется на каждом опросе, закрытая — больше нет.
+    # An open candle is updated on every poll, a closed one never again.
     is_closed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 class MarketTicker(Base):
-    """Последнее состояние рынка. Одна строка на пару, перезаписывается.
+    """Latest market state. One row per pair, overwritten.
 
-    Сюда смотрят бот и движок алертов, чтобы не дёргать биржу на каждый
-    запрос. История цен живёт в candles, здесь только «сейчас».
+    The bot and the alert engine read it so they don't hit the exchange on every
+    request. Price history lives in candles; this is only "now".
     """
 
     __tablename__ = "market_tickers"
@@ -129,9 +130,9 @@ class MarketTicker(Base):
     high_24h: Mapped[Decimal | None] = mapped_column(Price, nullable=True)
     low_24h: Mapped[Decimal | None] = mapped_column(Price, nullable=True)
     volume_24h: Mapped[Decimal | None] = mapped_column(Amount, nullable=True)
-    # Оборот в валюте котировки. Сортировать рынки по объёму в монетах
-    # бессмысленно: у мемкоинов количество измеряется триллионами, и
-    # они вытесняют всё остальное наверх списка.
+    # Turnover in the quote currency. Sorting markets by volume in coins is
+    # meaningless: memecoin amounts are measured in trillions and push
+    # everything else down the list.
     quote_volume_24h: Mapped[Decimal | None] = mapped_column(Usd, nullable=True)
     change_24h_pct: Mapped[Decimal | None] = mapped_column(Pct, nullable=True)
 
@@ -143,10 +144,10 @@ class MarketTicker(Base):
 
 
 class GlobalStats(Base):
-    """Снимок общерыночных показателей для виджетов дашборда.
+    """Snapshot of market-wide metrics for dashboard widgets.
 
-    Храним историей, а не одной строкой: на графике индекса страха и
-    жадности нужна динамика, а источник отдаёт только текущее значение.
+    Stored as history, not a single row: the Fear & Greed chart needs the trend, and the
+    source only returns the current value.
     """
 
     __tablename__ = "global_stats"
@@ -162,6 +163,6 @@ class GlobalStats(Base):
     btc_dominance: Mapped[Decimal | None] = mapped_column(Pct, nullable=True)
     eth_dominance: Mapped[Decimal | None] = mapped_column(Pct, nullable=True)
 
-    # Индекс страха и жадности: 0..100 + текстовая метка от источника.
+    # Fear & Greed index: 0..100 plus a text label from the source.
     fng_value: Mapped[int | None] = mapped_column(Integer, nullable=True)
     fng_label: Mapped[str | None] = mapped_column(String(32), nullable=True)

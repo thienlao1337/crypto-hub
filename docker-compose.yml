@@ -36,8 +36,8 @@ services:
     environment:
       POSTGRES_HOST: db
     ports:
-      # Внутри контейнера порт всегда 8000, наружу публикуется
-      # WEB_PUBLIC_PORT — чтобы не конфликтовать с чем-то ещё на хосте.
+      # Inside the container the port is always 8000; WEB_PUBLIC_PORT is
+      # published outside - so it doesn't clash with anything else on the host.
       - "${WEB_PUBLIC_PORT:-8000}:8000"
     depends_on:
       db:
@@ -73,7 +73,7 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  # Прогон тестов в том же окружении, что и рантайм:
+  # Run the tests in the same environment as the runtime:
   #   docker compose --profile test run --rm tests
   tests:
     build:
@@ -85,8 +85,9 @@ services:
       - .env
     environment:
       POSTGRES_HOST: db
-    # Тесты идут на PostgreSQL (в отдельной базе с суффиксом _test), а не
-    # на SQLite: там Numeric хранится как float и деньги теряют точность.
+    # Tests run on PostgreSQL (in a separate database with the _test suffix),
+    # not on SQLite: there Numeric is stored as float and money loses
+    # precision.
     depends_on:
       db:
         condition: service_healthy

@@ -1,7 +1,7 @@
-"""Отрисовка QR-кода для привязки приложения-аутентификатора.
+"""Rendering the QR code for linking an authenticator app.
 
-Картинка отдаётся строкой data: прямо в шаблон, а не отдельным адресом:
-так секрет не попадает ни в URL, ни в журнал доступа веб-сервера.
+The image is passed to the template as a data: string, not as a separate URL: that way
+the secret ends up neither in a URL nor in the web server's access log.
 """
 
 import base64

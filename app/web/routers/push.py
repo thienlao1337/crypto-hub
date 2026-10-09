@@ -1,7 +1,7 @@
-"""Веб-пуш: выдача публичного ключа и подписка браузера.
+"""Web push: serving the public key and browser subscription.
 
-Запросы сюда идут через fetch, а не через форму, поэтому тело —
-JSON, а токен CSRF приезжает в нём же полем csrf_token.
+Requests here come via fetch, not a form, so the body is JSON and the CSRF token arrives
+in it as the csrf_token field.
 """
 
 import logging
@@ -22,24 +22,23 @@ router = APIRouter(tags=["push"])
 
 @router.get("/sw.js", include_in_schema=False)
 async def service_worker():
-    """Service worker отдаётся с корня, а не из /static/.
+    """The service worker is served from the root, not from /static/.
 
-    Область действия service worker'а ограничена каталогом, из которого
-    он загружен: из /static/ он не смог бы открывать страницы панели по
-    клику на уведомление.
+    A service worker's scope is limited to the directory it was loaded from: from
+    /static/ it couldn't open panel pages when a notification is clicked.
     """
     return FileResponse(
         STATIC_DIR / "sw.js",
         media_type="application/javascript",
-        # Обновлённый воркер должен подхватываться, а не жить в кэше
-        # неделю: браузер и так проверяет его при каждой регистрации.
+        # An updated worker must be picked up, not live in the cache for a
+        # week: the browser checks it on every registration anyway.
         headers={"Cache-Control": "no-cache"},
     )
 
 
 @router.get("/push/config")
 async def push_config(user: User = Depends(auth.require_user)):
-    """Публичный ключ VAPID для подписки в браузере."""
+    """Public VAPID key for subscribing in the browser."""
     if not webpush.is_configured():
         return {"enabled": False}
     return {"enabled": True, "public_key": webpush.public_key()}

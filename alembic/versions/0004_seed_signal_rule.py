@@ -1,8 +1,8 @@
 """seed default signal rule
 
-Правило по умолчанию: EMA-кроссовер с фильтром по RSI на часовом
-таймфрейме. Общее для всех (user_id пуст) и без привязки к паре —
-считается по спискам отслеживания пользователей.
+Default rule: EMA crossover with an RSI filter on the hourly timeframe. Shared by
+everyone (user_id is empty) and not tied to a pair - it is evaluated against users'
+watchlists.
 
 Revision ID: 0004
 Revises: 0003
@@ -35,8 +35,8 @@ CONFIG = (
 
 
 def upgrade() -> None:
-    # Таймфрейм ищем по коду: идентификаторы справочника зависят от
-    # порядка вставки в предыдущей миграции.
+    # Look the timeframe up by code: reference-table ids depend on insertion
+    # order in the previous migration.
     op.execute(
         sa.text(
             """

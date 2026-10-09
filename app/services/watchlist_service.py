@@ -1,8 +1,8 @@
-"""Список отслеживания.
+"""Watchlist.
 
-От него зависит не только удобство: по нему фоновый процесс решает, по
-каким парам качать свечи, считать сигналы и догружать историю сделок.
-Качать всё подряд нельзя — пар больше тысячи.
+It isn't just a convenience: the background process uses it to decide which pairs to
+download candles for, compute signals on and backfill trade history for. Downloading
+everything isn't an option - there are over a thousand pairs.
 """
 
 from sqlalchemy import func, select
@@ -56,7 +56,7 @@ async def is_watched(session: AsyncSession, user: User, market_id: int) -> bool:
 
 
 async def add(session: AsyncSession, user: User, market_id: int) -> WatchlistItem | None:
-    """Добавить пару. Повторное добавление ничего не ломает."""
+    """Add a pair. Adding it again breaks nothing."""
     existing = await session.execute(
         select(WatchlistItem).where(
             WatchlistItem.user_id == user.id,
@@ -71,8 +71,8 @@ async def add(session: AsyncSession, user: User, market_id: int) -> WatchlistIte
         select(func.count()).select_from(WatchlistItem).where(WatchlistItem.user_id == user.id)
     )
     if int(count or 0) >= MAX_ITEMS:
-        # Ограничение не косметическое: на каждую пару фоновый процесс
-        # качает свечи и считает индикаторы.
+        # The limit isn't cosmetic: for every pair the background process
+        # downloads candles and computes indicators.
         raise WatchlistError(f"В списке уже {MAX_ITEMS} пар — больше не добавить.")
 
     item = WatchlistItem(user_id=user.id, market_id=market_id, sort_order=int(count or 0))
@@ -95,7 +95,7 @@ async def remove(session: AsyncSession, user: User, market_id: int) -> None:
 
 
 async def toggle(session: AsyncSession, user: User, market_id: int) -> bool:
-    """Переключить наблюдение. Возвращает новое состояние."""
+    """Toggle watching. Returns the new state."""
     if await is_watched(session, user, market_id):
         await remove(session, user, market_id)
         return False

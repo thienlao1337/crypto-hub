@@ -1,7 +1,7 @@
-"""Настройки из примера не должны доезжать до прода.
+"""Example settings must never reach production.
 
-Все они рабочие: с ними панель открывается и ничего не жалуется. Именно
-поэтому проверка и нужна — молчаливая дыра хуже громкого отказа.
+All of them work: with them the panel opens and nothing complains. That's exactly why
+the check is needed - a silent hole is worse than a loud failure.
 """
 
 import pytest
@@ -25,7 +25,7 @@ GOOD = {
 
 
 def settings(**overrides) -> Settings:
-    # _env_file=None: настройки разработчика не должны влиять на проверку.
+    # _env_file=None: the developer's settings must not affect the check.
     return Settings(_env_file=None, **{**GOOD, **overrides})
 
 
@@ -56,7 +56,7 @@ def test_example_values_block_startup(field, value):
 
 
 def test_message_says_what_to_do():
-    """Отказ без инструкции — это просто сломанный деплой."""
+    """A rejection without instructions is just a broken deploy."""
     with pytest.raises(RuntimeError) as info:
         verify_deployment(settings(session_secret=DEFAULT_SESSION_SECRET))
 
@@ -65,14 +65,14 @@ def test_message_says_what_to_do():
 
 
 def test_debug_only_warns():
-    """Разработчику незачем каждый раз заводить настоящие секреты."""
+    """A developer shouldn't have to set up real secrets every time."""
     config = settings(session_secret=DEFAULT_SESSION_SECRET, debug=True)
 
     verify_deployment(config)
 
 
 def test_database_password_only_warns():
-    """Наружу база не публикуется — это замечание, а не блокировка."""
+    """The database isn't published externally - this is a note, not a blocker."""
     blocking, warnings = deployment_problems(
         settings(postgres_password=DEFAULT_POSTGRES_PASSWORD)
     )
@@ -91,7 +91,7 @@ def test_insecure_cookie_on_public_address_warns():
 
 
 def test_insecure_cookie_on_localhost_is_fine():
-    """Локальный запуск по http — обычный сценарий разработки."""
+    """Running locally over http is a normal development scenario."""
     _, warnings = deployment_problems(
         settings(session_secure_cookie=False, public_url="http://localhost:8000")
     )

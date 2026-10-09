@@ -1,11 +1,11 @@
-"""Доставка уведомлений: Telegram и веб-пуш.
+"""Notification delivery: Telegram and web push.
 
-Отдельно от записи события: сработавший алерт попадает в ленту сразу, а
-в чат уходит следующим проходом. Если бот недоступен или пользователь
-заблокировал его, событие не теряется и не блокирует движок алертов.
+Separate from recording the event: a triggered alert lands in the feed immediately and
+goes to the chat on the next pass. If the bot is unavailable or the user blocked it, the
+event isn't lost and doesn't block the alert engine.
 
-Кому что разрешено, здесь не решается: уведомление с выключенным
-каналом помечается доставленным ещё при записи и в очередь не попадает.
+Who is allowed what isn't decided here: a notification for a disabled channel is marked
+delivered at recording time and never enters the queue.
 """
 
 import logging
@@ -25,13 +25,13 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 BATCH_SIZE = 30
-# Telegram ограничивает частоту сообщений; пауза между отправками
-# держит нас заведомо ниже лимита без отдельной очереди.
+# Telegram rate-limits messages; a pause between sends keeps us safely below
+# the limit without a separate queue.
 SEND_DELAY = 0.05
 
 
 async def deliver_pending() -> int:
-    """Разослать уведомления, которые ещё не ушли в Telegram."""
+    """Send notifications that haven't gone to Telegram yet."""
     if not settings.bot_token:
         return 0
 
@@ -68,34 +68,34 @@ async def deliver_pending() -> int:
                 await _mark_trigger(payload)
                 sent += 1
             except TelegramForbiddenError:
-                # Пользователь заблокировал бота. Повторять бессмысленно:
-                # помечаем доставленным с пояснением, иначе очередь будет
-                # расти вечно.
+                # The user blocked the bot. Retrying is pointless: mark it
+                # delivered with an explanation, otherwise the queue would grow
+                # forever.
                 await _mark(
                     notification_id,
                     delivered=True,
                     error="Пользователь заблокировал бота.",
                 )
             except TelegramRetryAfter as exc:
-                logger.info("Telegram просит подождать %s с", exc.retry_after)
+                logger.info("Telegram asks to wait %s s", exc.retry_after)
                 break
             except Exception as exc:
-                logger.warning("Уведомление %s не доставлено: %s", notification_id, exc)
+                logger.warning("Notification %s not delivered: %s", notification_id, exc)
                 await _mark(notification_id, delivered=False, error=str(exc))
     finally:
         await bot.session.close()
 
     if sent:
-        logger.info("Отправлено в Telegram: %s", sent)
+        logger.info("Sent to Telegram: %s", sent)
     return sent
 
 
 async def _mark_trigger(payload: dict | None) -> None:
-    """Отметить доставку у срабатывания алерта, если оно известно.
+    """Mark delivery on the alert trigger, if it's known.
 
-    Уведомление и срабатывание — разные записи: первая живёт в очереди
-    отправки, вторая в истории алерта. Без этой отметки история молчала
-    бы о том, ушло ли сообщение.
+    The notification and the trigger are different rows: the first lives in the send
+    queue, the second in the alert history. Without this mark the history would say
+    nothing about whether the message went out.
     """
     trigger_id = (payload or {}).get("trigger_id")
     if not trigger_id:
@@ -120,13 +120,12 @@ async def _mark(notification_id: int, *, delivered: bool, error: str | None) -> 
 
 
 async def deliver_web_push() -> int:
-    """Разослать уведомления подписанным браузерам.
+    """Send notifications to subscribed browsers.
 
-    Пуш идёт тем же событиям, что и лента: показывать в панели, но не
-    доводить до браузера, когда пользователь сам просил об этом, —
-    полумера. Устройства, которые push-сервис объявил недействующими,
-    удаляются сразу: повторять отправку по ним бессмысленно, а
-    накапливаться они будут при каждой смене браузера.
+    Push follows the same events as the feed: showing something in the panel but not
+    bringing it to the browser when the user asked for exactly that would be a
+    half-measure. Devices the push service declared invalid are deleted right away:
+    retrying them is pointless, and they'd pile up with every browser change.
     """
     if not webpush.is_configured():
         return 0
@@ -161,14 +160,14 @@ async def deliver_web_push() -> int:
                     select(PushSubscription).where(PushSubscription.user_id == user_id)
                 )
             ).scalars().all()
-            # Значения снимаем заранее: после возможного отката объекты
-            # протухнут, а обращение к их полям упадёт.
+            # Read the values up front: after a possible rollback the objects
+            # expire, and accessing their fields would fail.
             devices = [(t.id, t.endpoint, t.p256dh, t.auth) for t in targets]
 
         payload = {
             "title": title,
             "body": body,
-            # Тег склеивает повторы одного события в одну карточку.
+            # The tag merges repeats of one event into a single card.
             "tag": f"{kind}-{notification_id}",
             "url": "/notifications",
         }
@@ -184,7 +183,7 @@ async def deliver_web_push() -> int:
         await _mark_push(notification_id)
 
     if sent:
-        logger.info("Отправлено веб-пушем: %s", sent)
+        logger.info("Sent via web push: %s", sent)
     return sent
 
 
@@ -205,10 +204,10 @@ async def _record_push(subscription_id: int, result: webpush.SendResult) -> None
 
 
 async def _mark_push(notification_id: int) -> None:
-    """Отметить, что попытка была.
+    """Mark that an attempt was made.
 
-    Повторять неудачную отправку не станем: пуш ценен свежестью, а
-    очередь из вчерашних уведомлений — это уже не уведомления.
+    We won't retry a failed send: push is valuable for being fresh, and a queue of
+    yesterday's notifications isn't notifications anymore.
     """
     async with session_scope() as session:
         notification = await session.get(Notification, notification_id)

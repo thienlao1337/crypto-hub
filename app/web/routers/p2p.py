@@ -1,7 +1,7 @@
-"""P2P: объявления, правила ценообразования, журнал.
+"""P2P: ads, pricing rules, log.
 
-Роутер тонкий: проверки и решения живут в сервисе, здесь только разбор
-формы и переадресация с сообщением.
+The router is thin: checks and decisions live in the service; here we only parse the
+form and redirect with a message.
 """
 
 import logging
@@ -54,7 +54,7 @@ async def sync_now(
     user: User = Depends(auth.require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Подтянуть объявления по кнопке, не дожидаясь фонового прохода."""
+    """Pull ads on button press without waiting for the background pass."""
     auth.verify_csrf(request, csrf_token)
 
     accounts = await p2p_service.p2p_accounts(session, user)
@@ -71,7 +71,7 @@ async def sync_now(
         try:
             total += await p2p_service.sync_ads(session, account, adapter)
         except Exception as exc:
-            logger.warning("Объявления подключения %s не подтянулись: %s", account.id, exc)
+            logger.warning("Ads for connection %s were not pulled: %s", account.id, exc)
             flash.error(request, f"«{account.label}»: {exc}")
         finally:
             await adapter.close()
@@ -178,8 +178,8 @@ async def change_mode(
         flash.error(request, "Сначала сохраните правило.")
         return RedirectResponse(target, status_code=303)
 
-    # Боевой режим меняет цену, по которой у клиента реально покупают:
-    # одного выбора в списке для этого мало.
+    # Live mode changes the price at which people actually buy from the client:
+    # picking it in a dropdown isn't enough.
     if mode == RULE_LIVE and not confirm:
         flash.error(request, "Чтобы включить боевой режим, подтвердите согласие галочкой.")
         return RedirectResponse(target, status_code=303)

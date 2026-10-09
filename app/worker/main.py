@@ -1,7 +1,7 @@
-"""Планировщик фоновых задач.
+"""Background job scheduler.
 
-Отдельный процесс: тяжёлые опросы бирж не должны конкурировать с
-обработкой запросов веб-панели, а падение одного не должно ронять другое.
+A separate process: heavy exchange polling mustn't compete with handling web panel
+requests, and one crashing mustn't take down the other.
 """
 
 import asyncio
@@ -17,10 +17,10 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
 )
-# APScheduler на каждый запуск пишет две строки INFO, а задач у нас
-# больше десятка и самая частая ходит раз в пятнадцать секунд: получается
-# около семнадцати тысяч строк в сутки, среди которых не найти настоящую
-# ошибку. Свои сообщения остаются на INFO.
+# APScheduler writes two INFO lines per run, and we have over a dozen jobs with
+# the most frequent running every fifteen seconds: that's about seventeen
+# thousand lines a day, among which a real error can't be found. Our own
+# messages stay at INFO.
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 logger = logging.getLogger("worker")
 settings = get_settings()
@@ -29,11 +29,11 @@ settings = get_settings()
 def build_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(
         job_defaults={
-            # Если предыдущий запуск ещё идёт, следующий не запускаем:
-            # две одновременные синхронизации одного ключа только выберут
-            # лимит запросов биржи.
+            # If the previous run is still going, don't start the next one: two
+            # simultaneous syncs of the same key would just burn through the
+            # exchange's request limit.
             "max_instances": 1,
-            # Пропущенные из-за долгой работы запуски не копим.
+            # Runs missed because of long execution aren't queued up.
             "coalesce": True,
             "misfire_grace_time": 60,
         }
@@ -130,8 +130,8 @@ def build_scheduler() -> AsyncIOScheduler:
         seconds=settings.reprice_p2p_interval,
         id="reprice_p2p",
     )
-    # Раз в сутки и в тихий час: удаление затрагивает большие таблицы, и
-    # делать это одновременно с синхронизацией бирж незачем.
+    # Once a day, at a quiet hour: deletion touches large tables, and there's
+    # no reason to do it at the same time as exchange syncing.
     scheduler.add_job(
         retention.cleanup,
         "cron",
@@ -147,16 +147,16 @@ async def main() -> None:
 
     scheduler = build_scheduler()
 
-    # Справочник пар нужен до первой синхронизации балансов: без него
-    # оценка портфеля будет пустой на всё первое окно.
-    logger.info("Первичная загрузка торговых пар")
+    # The pair list is needed before the first balance sync: without it the
+    # portfolio valuation would be empty for the whole first window.
+    logger.info("Initial load of trading pairs")
     await tasks.refresh_markets()
     await tasks.refresh_tickers()
     await tasks.refresh_global_stats()
 
     scheduler.start()
     logger.info(
-        "Планировщик запущен: %s",
+        "Scheduler started: %s",
         ", ".join(sorted(job.id for job in scheduler.get_jobs())),
     )
 
@@ -166,14 +166,14 @@ async def main() -> None:
         try:
             loop.add_signal_handler(sig, stop.set)
         except NotImplementedError:
-            # Windows: сигналы в цикле не поддерживаются, полагаемся на
+            # Windows: signals in the event loop aren't supported, rely on
             # KeyboardInterrupt.
             pass
 
     try:
         await stop.wait()
     finally:
-        logger.info("Останавливаем планировщик")
+        logger.info("Stopping the scheduler")
         scheduler.shutdown(wait=False)
 
 
